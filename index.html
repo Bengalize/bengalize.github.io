@@ -1,0 +1,536 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="color-scheme" content="light dark" />
+  <meta name="theme-color" content="#f4f1e9" media="(prefers-color-scheme: light)" />
+  <meta name="theme-color" content="#121512" media="(prefers-color-scheme: dark)" />
+  <meta name="description" content="Artizanale builds websites, manages Google Ads, and optimizes Google Business Profiles for local service businesses in Bellevue and the Eastside." />
+  <link rel="icon" href="data:," />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=Libre+Franklin:wght@400;500;600&display=swap" rel="stylesheet" />
+  <title>Artizanale — Bellevue Web & Ads</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #f4f1e9;
+      --surface: #fffdf8;
+      --ink: #122019;
+      --muted: #556158;
+      --line: #c8cec5;
+      --accent: #ef5a29;
+      --accent-ink: #fffaf5;
+      --forest: #163f31;
+      --lime: #c9f66f;
+      --shadow: 0 18px 48px rgba(26, 43, 34, .12);
+      --header: rgba(244, 241, 233, .94);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #121512;
+        --surface: #1b211d;
+        --ink: #f5f2e9;
+        --muted: #b6c0b7;
+        --line: #3b443d;
+        --accent: #ff7650;
+        --accent-ink: #16110f;
+        --forest: #204f3e;
+        --lime: #c9f66f;
+        --shadow: 0 18px 48px rgba(0, 0, 0, .34);
+        --header: rgba(18, 21, 18, .94);
+      }
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; scroll-padding-top: 96px; }
+    body { margin: 0; background: var(--bg); color: var(--ink); font-family: "Libre Franklin", sans-serif; line-height: 1.55; }
+    body.menu-open { overflow: hidden; }
+    img { display: block; width: 100%; }
+    a { color: inherit; }
+    button, input, textarea { font: inherit; }
+    button, a { -webkit-tap-highlight-color: transparent; }
+    .container { width: min(1160px, calc(100% - 40px)); margin: 0 auto; }
+    .site-header { position: sticky; top: 0; z-index: 30; background: var(--header); border-bottom: 1px solid transparent; backdrop-filter: blur(14px); }
+    .site-header.scrolled { border-color: var(--line); }
+    .header-inner { height: 78px; display: flex; align-items: center; justify-content: space-between; gap: 28px; }
+    .wordmark { font: 700 21px/1 "Archivo", sans-serif; letter-spacing: -.04em; text-decoration: none; }
+    .wordmark span { color: var(--accent); }
+    .brand-lockup { display: flex; flex-direction: column; gap: 4px; }
+    .brand-tagline { font: 600 10.5px/1 "Archivo", sans-serif; letter-spacing: .16em; text-transform: uppercase; color: var(--muted, #6f6a5e); }
+    .nav-wrap { display: flex; align-items: center; gap: 34px; }
+    .nav-links { display: flex; align-items: center; gap: 26px; }
+    .nav-links a { font-size: 14px; font-weight: 600; text-decoration: none; }
+    .nav-links a:hover, .footer-links a:hover { color: var(--accent); }
+    .btn { min-height: 48px; display: inline-flex; align-items: center; justify-content: center; gap: 9px; padding: 0 22px; border: 1px solid transparent; border-radius: 3px; font-weight: 700; font-size: 15px; text-decoration: none; cursor: pointer; transition: transform .2s ease, background .2s ease, color .2s ease; }
+    .btn:hover { transform: translateY(-2px); }
+    .btn-primary { background: var(--accent); color: var(--accent-ink); }
+    .btn-dark { background: var(--ink); color: var(--bg); }
+    .btn-outline { border-color: var(--ink); color: var(--ink); background: transparent; }
+    .btn-small { min-height: 42px; padding: 0 17px; font-size: 13px; }
+    .menu-btn { display: none; width: 44px; height: 44px; padding: 0; border: 1px solid var(--line); color: var(--ink); background: transparent; border-radius: 3px; align-items: center; justify-content: center; }
+    .menu-btn svg { width: 22px; height: 22px; }
+    .hero { padding: 72px 0 86px; overflow: hidden; }
+    .hero-grid { display: grid; grid-template-columns: 1.05fr .78fr; gap: 72px; align-items: center; }
+    .eyebrow { display: inline-flex; align-items: center; gap: 10px; margin-bottom: 24px; font-size: 13px; font-weight: 700; color: var(--forest); }
+    .eyebrow::before { content: ""; width: 26px; height: 3px; background: var(--accent); }
+    h1, h2, h3 { font-family: "Archivo", sans-serif; margin: 0; letter-spacing: -.045em; line-height: 1.02; }
+    h1 { max-width: 760px; font-size: clamp(47px, 6.6vw, 82px); font-weight: 700; }
+    .hero h1 em { font-style: normal; color: var(--accent); }
+    .hero-copy > p { max-width: 670px; margin: 28px 0 0; font-size: clamp(18px, 2vw, 21px); color: var(--muted); }
+    .hero-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 36px; }
+    .trust-line { display: flex; align-items: center; gap: 10px; margin-top: 24px; font-size: 14px; font-weight: 600; color: var(--muted); }
+    .stars { color: var(--accent); letter-spacing: 2px; }
+    .hero-visual { position: relative; padding: 0 20px 25px 0; }
+    .hero-visual::after { content: ""; position: absolute; inset: 28px 0 0 45px; background: var(--forest); z-index: -1; }
+    .hero-visual img { aspect-ratio: 4 / 5; object-fit: cover; object-position: 58% center; box-shadow: var(--shadow); }
+    .visual-note { position: absolute; left: -22px; bottom: 0; width: 210px; padding: 18px; background: var(--lime); color: #172018; font: 700 18px/1.18 "Archivo", sans-serif; box-shadow: var(--shadow); }
+    .visual-note small { display: block; margin-top: 8px; font: 500 12px/1.4 "Libre Franklin", sans-serif; }
+    .hero-proof { padding: 24px 0; background: var(--surface); border-top: 1px solid var(--line); }
+    .hero-proof-inner { display: grid; grid-template-columns: minmax(230px, .8fr) 1fr 1fr; gap: 18px; align-items: center; }
+    .hero-proof-summary { padding-right: 18px; }
+    .hero-proof-summary .stars { display: block; margin-bottom: 8px; }
+    .hero-proof-summary strong { display: block; font: 700 18px/1.25 "Archivo", sans-serif; letter-spacing: -.02em; }
+    .hero-proof-summary a { display: inline-block; margin-top: 8px; color: var(--muted); font-size: 13px; font-weight: 600; text-underline-offset: 4px; }
+    .hero-proof-video { display: grid; grid-template-columns: 122px 1fr; gap: 14px; align-items: center; margin: 0; padding: 10px; background: var(--bg); border-top: 2px solid var(--accent); }
+    .hero-proof-video video { display: block; width: 122px; height: 82px; background: #0b0d0c; object-fit: contain; }
+    .hero-proof-video figcaption { font: 600 13px/1.35 "Archivo", sans-serif; }
+    .hero-proof-video figcaption span { display: block; margin-top: 4px; color: var(--muted); font: 500 12px/1.35 "Libre Franklin", sans-serif; }
+    .trust-strip { background: var(--forest); color: #fff; }
+    .trust-items { min-height: 88px; display: grid; grid-template-columns: repeat(3, 1fr); align-items: center; }
+    .trust-item { padding: 14px 28px; text-align: center; font: 600 14px/1.35 "Archivo", sans-serif; border-right: 1px solid rgba(255,255,255,.22); }
+    .trust-item:last-child { border: 0; }
+    section { padding: 110px 0; }
+    .section-head { display: flex; justify-content: space-between; align-items: end; gap: 32px; margin-bottom: 54px; }
+    .section-head h2 { max-width: 690px; font-size: clamp(37px, 5vw, 60px); }
+    .section-head p { max-width: 430px; margin: 0; color: var(--muted); }
+    .services-list { border-top: 1px solid var(--line); }
+    .service { display: grid; grid-template-columns: 80px .8fr 1fr; gap: 40px; padding: 42px 0; border-bottom: 1px solid var(--line); align-items: start; }
+    .service-num { color: var(--accent); font: 700 16px/1 "Archivo", sans-serif; }
+    .service h3 { font-size: clamp(27px, 3vw, 38px); }
+    .service p { margin: 0; color: var(--muted); font-size: 17px; }
+    .process { background: var(--surface); }
+    .process-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; counter-reset: step; }
+    .step { position: relative; min-height: 250px; padding: 34px 34px 30px; border-top: 4px solid var(--ink); border-right: 1px solid var(--line); }
+    .step:last-child { border-right: 0; }
+    .step::before { counter-increment: step; content: "0" counter(step); display: block; margin-bottom: 48px; color: var(--accent); font: 700 14px/1 "Archivo", sans-serif; }
+    .step h3 { font-size: 24px; margin-bottom: 12px; }
+    .step p { margin: 0; color: var(--muted); }
+    .work-block { display: grid; grid-template-columns: 1.15fr .85fr; background: var(--ink); color: var(--bg); }
+    .work-image { position: relative; min-height: 500px; overflow: hidden; }
+    .work-image img { height: 100%; object-fit: cover; }
+    .work-image::after { content: ""; position: absolute; inset: 0; background: rgba(9, 26, 19, .14); }
+    .work-copy { padding: clamp(38px, 6vw, 72px); display: flex; flex-direction: column; justify-content: center; }
+    .label { width: max-content; margin-bottom: 28px; padding: 7px 10px; border: 1px solid currentColor; font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+    .work-copy h3 { font-size: clamp(34px, 4.5vw, 58px); }
+    .work-copy p { margin: 24px 0 34px; color: color-mix(in srgb, var(--bg) 75%, transparent); font-size: 17px; }
+    .work-copy .btn { width: max-content; background: var(--lime); color: #172018; }
+    .audits { background: #0b0b0e; color: #f7f5f1; }
+    .audits .section-head { align-items: start; }
+    .audits .section-head p { color: #b8b7bf; }
+    .audit-kicker { display: inline-flex; align-items: center; gap: 9px; margin-bottom: 18px; color: #ff6b32; font: 700 13px/1 "Archivo", sans-serif; }
+    .audit-kicker::before { content: ""; width: 24px; height: 3px; background: currentColor; }
+    .audit-feature { display: grid; grid-template-columns: .72fr 1.28fr; gap: clamp(34px, 6vw, 76px); align-items: start; }
+    .audit-summary { position: sticky; top: 108px; }
+    .audit-summary h3 { font-size: clamp(30px, 3.8vw, 48px); }
+    .audit-disclosure { margin: 18px 0 0; color: #b8b7bf; }
+    .audit-findings { list-style: none; margin: 34px 0 0; padding: 0; border-top: 1px solid #33333a; }
+    .audit-findings li { display: grid; grid-template-columns: 34px 1fr; gap: 12px; padding: 18px 0; border-bottom: 1px solid #33333a; }
+    .audit-findings strong { display: block; margin-bottom: 4px; font: 700 17px/1.3 "Archivo", sans-serif; }
+    .audit-findings span { color: #ff6b32; font: 700 13px/1.4 "Archivo", sans-serif; }
+    .audit-findings p { margin: 0; color: #b8b7bf; font-size: 14px; }
+    .audit-gallery { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+    .audit-slide { margin: 0; background: #131318; }
+    .audit-slide:first-child { grid-column: 1 / -1; }
+    .audit-slide img { aspect-ratio: 4 / 5; object-fit: cover; }
+    .audit-slide:first-child img { width: min(62%, 430px); margin: 0 auto; }
+    .audit-slide figcaption { padding: 10px 12px 12px; color: #92919a; font-size: 12px; }
+    .audit-next { margin: 34px 0 0; color: #b8b7bf; font-size: 13px; }
+    .reviews { background: var(--forest); color: #fff; }
+    .reviews .section-head p { color: rgba(255,255,255,.72); }
+    .review-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; }
+    .review { padding: 36px; background: rgba(255,255,255,.07); border-top: 3px solid var(--lime); }
+    .review .stars { color: var(--lime); }
+    .review blockquote { margin: 25px 0 30px; font: 500 clamp(22px, 2.5vw, 30px)/1.28 "Archivo", sans-serif; letter-spacing: -.025em; }
+    .review cite { font-style: normal; font-size: 13px; color: rgba(255,255,255,.72); }
+    .testimonial-videos { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; margin-top: 22px; }
+    .testimonial-video { margin: 0; padding: 14px; background: rgba(255,255,255,.07); }
+    .testimonial-video video { display: block; width: 100%; aspect-ratio: 4 / 3; background: #0b0d0c; object-fit: contain; }
+    .testimonial-video figcaption { padding: 13px 4px 2px; font: 600 14px/1.4 "Archivo", sans-serif; color: rgba(255,255,255,.82); }
+    .reviews-link { display: inline-block; margin-top: 26px; color: #fff; text-underline-offset: 5px; font-weight: 600; }
+    .about-grid { display: grid; grid-template-columns: .8fr 1.1fr; gap: 90px; align-items: center; }
+    .about-aside { padding: 42px; background: var(--lime); color: #172018; }
+    .about-aside .initials { font: 700 clamp(72px, 10vw, 128px)/.8 "Archivo", sans-serif; letter-spacing: -.08em; }
+    .about-aside p { margin: 34px 0 0; font-weight: 600; }
+    .about-copy h2 { font-size: clamp(38px, 5vw, 62px); }
+    .about-copy p { margin: 28px 0 0; font-size: 19px; color: var(--muted); }
+    .about-points { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 30px; }
+    .about-points span { padding: 9px 12px; border: 1px solid var(--line); font-size: 13px; font-weight: 600; }
+    .contact { padding: 0 0 110px; }
+    .contact-wrap { display: grid; grid-template-columns: .85fr 1.15fr; background: var(--accent); color: var(--accent-ink); }
+    .contact-copy { padding: clamp(38px, 6vw, 72px); }
+    .contact-copy h2 { font-size: clamp(42px, 5.5vw, 68px); }
+    .contact-copy p { margin: 24px 0 0; max-width: 400px; font-size: 18px; }
+    .location { display: flex; align-items: center; gap: 10px; margin-top: 36px; font-weight: 700; }
+    .contact-form { margin: 18px; padding: clamp(28px, 4vw, 48px); background: var(--surface); color: var(--ink); }
+    .field { margin-bottom: 20px; }
+    .field label { display: block; margin-bottom: 8px; font-size: 13px; font-weight: 700; }
+    .field input, .field textarea { width: 100%; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; padding: 12px 0; background: transparent; color: var(--ink); outline: none; }
+    .field input:focus, .field textarea:focus { border-color: var(--accent); }
+    .field textarea { min-height: 100px; resize: vertical; }
+    .contact-form .btn { width: 100%; }
+    .form-note { margin: 14px 0 0; min-height: 22px; font-size: 13px; color: var(--muted); }
+    .form-success { display: none; padding: 16px; margin-bottom: 18px; background: color-mix(in srgb, var(--lime) 42%, var(--surface)); color: var(--ink); font-weight: 600; }
+    .form-success.show { display: block; }
+    .request-copy { margin-bottom: 20px; }
+    .request-copy[hidden] { display: none; }
+    .request-copy label { display: block; margin-bottom: 8px; font-size: 13px; font-weight: 700; }
+    .request-copy textarea { width: 100%; min-height: 140px; padding: 12px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); resize: vertical; }
+    footer { padding: 48px 0 calc(48px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); }
+    .footer-top { display: flex; align-items: start; justify-content: space-between; gap: 40px; }
+    .footer-brand strong { font: 700 26px/1 "Archivo", sans-serif; letter-spacing: -.04em; }
+    .footer-brand p { margin: 10px 0 0; color: var(--muted); }
+    .footer-links { display: flex; flex-wrap: wrap; justify-content: end; gap: 18px 28px; }
+    .footer-links a { font-size: 13px; font-weight: 600; text-decoration: none; }
+    .footer-bottom { margin-top: 38px; padding-top: 22px; border-top: 1px solid var(--line); font-size: 12px; color: var(--muted); }
+    @media (max-width: 900px) {
+      .container { width: min(100% - 32px, 720px); }
+      .menu-btn { display: inline-flex; }
+      .nav-wrap { display: none; position: fixed; inset: 78px 0 0; padding: 30px 20px; background: var(--bg); align-items: stretch; flex-direction: column; }
+      .nav-wrap.open { display: flex; }
+      .nav-links { flex-direction: column; align-items: stretch; gap: 0; }
+      .nav-links a { padding: 17px 4px; border-bottom: 1px solid var(--line); font-size: 18px; }
+      .nav-wrap .btn { margin-top: 8px; }
+      .hero { padding: 46px 0 68px; }
+      .hero-grid { grid-template-columns: 1fr; gap: 54px; }
+      .hero-visual { width: min(92%, 560px); margin-left: auto; }
+      .hero-visual img { aspect-ratio: 5 / 4; }
+      .hero-proof-inner { grid-template-columns: 1fr 1fr; }
+      .hero-proof-summary { grid-column: 1 / -1; padding-right: 0; }
+      .hero-proof-summary strong { display: inline; }
+      .hero-proof-summary a { margin: 0 0 0 8px; }
+      .hero-proof-video { grid-template-columns: 104px 1fr; }
+      .hero-proof-video video { width: 104px; height: 70px; }
+      .section-head { display: block; }
+      .section-head p { margin-top: 20px; }
+      .service { grid-template-columns: 52px 1fr; gap: 20px; }
+      .service p { grid-column: 2; }
+      .process-grid { grid-template-columns: 1fr; }
+      .step { min-height: 0; border-right: 0; border-top-width: 2px; }
+      .step::before { margin-bottom: 24px; }
+      .work-block { grid-template-columns: 1fr; }
+      .work-image { min-height: 380px; }
+      .audit-feature { grid-template-columns: 1fr; }
+      .audit-summary { position: static; }
+      .review-grid { grid-template-columns: 1fr; }
+      .testimonial-videos { grid-template-columns: 1fr; }
+      .about-grid { grid-template-columns: 1fr; gap: 42px; }
+      .contact-wrap { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 600px) {
+      .container { width: min(100% - 28px, 520px); }
+      .header-inner { height: 70px; }
+      .nav-wrap { inset: 70px 0 0; }
+      .hero { padding-top: 34px; }
+      .hero-copy > p { font-size: 17px; }
+      .hero-actions { flex-direction: column; }
+      .hero-actions .btn { width: 100%; }
+      .hero-visual { width: calc(100% - 10px); padding: 0 12px 18px 0; }
+      .hero-visual::after { inset: 20px 0 0 24px; }
+      .hero-visual img { aspect-ratio: 4 / 5; }
+      .visual-note { left: -4px; width: 185px; font-size: 16px; }
+      .hero-proof { padding: 20px 0; }
+      .hero-proof-inner { grid-template-columns: 1fr; gap: 12px; }
+      .hero-proof-summary { grid-column: auto; padding-bottom: 4px; }
+      .hero-proof-summary strong { display: block; }
+      .hero-proof-summary a { margin: 7px 0 0; }
+      .hero-proof-video { grid-template-columns: 96px 1fr; }
+      .hero-proof-video video { width: 96px; height: 68px; }
+      .trust-items { grid-template-columns: 1fr; padding: 10px 0; }
+      .trust-item { border-right: 0; border-bottom: 1px solid rgba(255,255,255,.2); padding: 15px; }
+      .trust-item:last-child { border-bottom: 0; }
+      section { padding: 78px 0; }
+      .section-head { margin-bottom: 36px; }
+      .service { grid-template-columns: 36px 1fr; padding: 30px 0; gap: 12px; }
+      .service p { font-size: 15px; }
+      .work-image { min-height: 300px; }
+      .work-copy { padding: 34px 26px 38px; }
+      .audit-gallery { grid-template-columns: 1fr; }
+      .audit-slide:first-child { grid-column: auto; }
+      .audit-slide:first-child img { width: 100%; }
+      .review { padding: 28px 24px; }
+      .testimonial-video { padding: 10px; }
+      .about-aside { padding: 32px 28px; }
+      .contact { padding-bottom: 78px; }
+      .contact-copy { padding: 38px 26px; }
+      .contact-form { margin: 0 12px 12px; padding: 30px 22px; }
+      .footer-top { flex-direction: column; }
+      .footer-links { justify-content: start; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+      *, *::before, *::after { transition: none !important; }
+    }
+  </style>
+</head>
+<body>
+  <header class="site-header" id="top">
+    <div class="container header-inner">
+      <div class="brand-lockup"><a href="#top" class="wordmark" aria-label="Artizanale home">Artizanale<span>.</span></a><span class="brand-tagline">Bellevue Web &amp; Ads</span></div>
+      <button class="menu-btn" type="button" aria-label="Open navigation" aria-expanded="false" aria-controls="site-nav">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+      </button>
+      <div class="nav-wrap" id="site-nav">
+        <nav class="nav-links" aria-label="Main navigation">
+          <a href="#services">Services</a><a href="#work">Work</a><a href="#audits">Audits</a><a href="#reviews">Reviews</a><a href="#about">About</a><a href="#contact">Contact</a>
+        </nav>
+        <a class="btn btn-primary btn-small" href="#contact">Claim a Free Makeover</a>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div class="container hero-grid">
+        <div class="hero-copy">
+          <div class="eyebrow">Bellevue marketing for local service businesses</div>
+          <h1>Get found on Google. Turn searches into <em>booked jobs.</em></h1>
+          <p>Your competitors are running ads and showing up online. I build your website, run your Google Ads, and sharpen your Google Business Profile—so customers find you first.</p>
+          <div class="hero-actions">
+            <a class="btn btn-primary" href="#contact">Claim a Free Google Makeover</a>
+            <a class="btn btn-outline" href="#work">See My Work</a>
+          </div>
+          <div class="trust-line"><span class="stars" aria-label="5 stars">★★★★★</span><span>5-star client reviews on Trustpilot</span></div>
+        </div>
+        <div class="hero-visual">
+          <img src="assets/owner-at-work.jpg" alt="A local shop owner working at a laptop behind the counter" />
+          <div class="visual-note">Built for busy local owners.<small>Clear strategy. Fast execution. No agency runaround.</small></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="hero-proof" aria-label="Client proof">
+      <div class="container hero-proof-inner">
+        <div class="hero-proof-summary">
+          <span class="stars" aria-label="5 stars">★★★★★</span>
+          <strong>Two client stories. 5-star reviews on Trustpilot.</strong>
+          <a href="https://www.trustpilot.com/review/artizanale.com" target="_blank" rel="noopener noreferrer">Read the reviews <span aria-hidden="true">↗</span></a>
+        </div>
+        <figure class="hero-proof-video">
+          <video controls preload="metadata" playsinline poster="assets/client-testimonial-website.jpg" aria-label="Website design client video testimonial">
+            <source src="assets/client-testimonial-website.mp4" type="video/mp4" />
+            Your browser does not support embedded video.
+          </video>
+          <figcaption>Website design<span>Client testimonial · 01</span></figcaption>
+        </figure>
+        <figure class="hero-proof-video">
+          <video controls preload="metadata" playsinline poster="assets/client-testimonial-automation.jpg" aria-label="Chatbot and automation client video testimonial">
+            <source src="assets/client-testimonial-automation.mp4" type="video/mp4" />
+            Your browser does not support embedded video.
+          </video>
+          <figcaption>Chatbot &amp; automation<span>Client testimonial · 02</span></figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <div class="trust-strip" aria-label="Key facts">
+      <div class="container trust-items">
+        <div class="trust-item">5-star client reviews on Trustpilot</div>
+        <div class="trust-item">Websites live in a week</div>
+        <div class="trust-item">Serving Bellevue, WA</div>
+      </div>
+    </div>
+
+    <section id="services">
+      <div class="container">
+        <div class="section-head">
+          <h2>The three things that move a local business forward.</h2>
+          <p>No bloated marketing plans. Just a sharper online presence built to help nearby customers discover you, trust you, and call.</p>
+        </div>
+        <div class="services-list">
+          <article class="service"><div class="service-num">01</div><h3>Custom Websites</h3><p>A fast, mobile-first website built to turn Google searches into booked jobs. Clear services, local trust signals, and an easy next step—live within a week.</p></article>
+          <article class="service"><div class="service-num">02</div><h3>Google Ads Management</h3><p>Show up above competitors when nearby customers search for the work you do. I build, manage, and improve campaigns around real local demand.</p></article>
+          <article class="service"><div class="service-num">03</div><h3>Google Business Profile</h3><p>Get found in Maps and the local results. I optimize the details that drive visibility, calls, directions, and a steady flow of new reviews.</p></article>
+        </div>
+      </div>
+    </section>
+
+    <section class="process" aria-labelledby="process-title">
+      <div class="container">
+        <div class="section-head"><h2 id="process-title">From invisible to ready for business.</h2><p>A focused process that respects your time and keeps the work moving.</p></div>
+        <div class="process-grid">
+          <article class="step"><h3>Free makeover</h3><p>Three Bellevue service businesses get hands-on improvements as portfolio pilots, free in exchange for an honest testimonial.</p></article>
+          <article class="step"><h3>I build &amp; launch</h3><p>You give me the essentials. I handle the strategy, writing, design, and launch—usually within a week.</p></article>
+          <article class="step"><h3>You get found</h3><p>Your website, ads, and Google profile work together to turn local searches into real calls.</p></article>
+        </div>
+      </div>
+    </section>
+
+    <section id="work">
+      <div class="container">
+        <div class="section-head"><h2>See the difference before you commit.</h2><p>I can turn a missed opportunity into a clear, credible digital storefront—and show you the direction first.</p></div>
+        <article class="work-block">
+          <div class="work-image"><img src="assets/cleaning-team.jpg" alt="A professional residential cleaning team with their equipment" /></div>
+          <div class="work-copy">
+            <div class="label">Sample concept</div>
+            <h3>Bellevue Cleaning Experts</h3>
+            <p>A sample homepage concept I built for a local cleaning business—mobile-first, trust-led, and designed to turn visits into quote requests.</p>
+            <a class="btn" href="https://muse.ai/s/bellevue-cleaning-experts-demo-site-bxm605xzxdn18x0" target="_blank" rel="noopener noreferrer">View the live concept <span aria-hidden="true">↗</span></a>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section class="audits" id="audits" aria-labelledby="audits-title">
+      <div class="container">
+        <div class="section-head">
+          <div>
+            <div class="audit-kicker">Proof of work</div>
+            <h2 id="audits-title">Recent audits.</h2>
+          </div>
+          <p>Sharp, practical teardowns of real local businesses. These are free audits—not client case studies—and each one shows the gaps I found and how I would fix them.</p>
+        </div>
+        <article class="audit-feature">
+          <div class="audit-summary">
+            <div class="label">Audit 01 · Bellevue</div>
+            <h3>JR Pro Cleaning Services</h3>
+            <p class="audit-disclosure">A free, independent visibility audit. JR Pro Cleaning Services is not presented as an Artizanale client.</p>
+            <ol class="audit-findings">
+              <li><span>01</span><div><strong>No Apple Maps listing</strong><p>The business was absent where nearby iPhone users search for local cleaning services.</p></div></li>
+              <li><span>02</span><div><strong>40 reviews vs. 200+</strong><p>Its 40 Google reviews sit beside top results advertising 200+ five-star reviews.</p></div></li>
+              <li><span>03</span><div><strong>Instagram disconnected</strong><p>Active social proof was not connected to the website, leaving credibility harder to discover.</p></div></li>
+            </ol>
+            <p class="audit-next">This is the first in a growing library of local audits. More will be added as they are completed.</p>
+          </div>
+          <div class="audit-gallery" aria-label="JR Pro Cleaning Services audit slides">
+            <figure class="audit-slide"><img src="assets/jr-pro-audit-slide-01.png" alt="Title slide for the JR Pro Cleaning Services visibility audit" /><figcaption>01 · Audit overview</figcaption></figure>
+            <figure class="audit-slide"><img src="assets/jr-pro-audit-slide-02.png" alt="Audit slide explaining that JR Pro Cleaning Services is missing from Apple Maps" /><figcaption>02 · Apple Maps gap</figcaption></figure>
+            <figure class="audit-slide"><img src="assets/jr-pro-audit-slide-03.png" alt="Audit slide comparing 40 JR Pro reviews with top results advertising over 200 reviews" /><figcaption>03 · Review gap</figcaption></figure>
+            <figure class="audit-slide"><img src="assets/jr-pro-audit-slide-04.png" alt="Audit slide showing that JR Pro's Instagram proof is disconnected from its website" /><figcaption>04 · Disconnected social proof</figcaption></figure>
+            <figure class="audit-slide"><img src="assets/jr-pro-audit-slide-05.png" alt="Closing audit slide offering free fixes as part of the Artizanale portfolio pilot" /><figcaption>05 · Recommended next step</figcaption></figure>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section class="reviews" id="reviews">
+      <div class="container">
+        <div class="section-head"><h2>Good work leaves a clear impression.</h2><p>Real feedback from business owners who trusted Artizanale with their online presence.</p></div>
+        <div class="review-grid">
+          <article class="review"><div class="stars" aria-label="5 stars">★★★★★</div><blockquote>“The design, mapping, and overall structure were spot on—exactly what I was hoping for!”</blockquote><cite>Website design client · August 2024</cite></article>
+          <article class="review"><div class="stars" aria-label="5 stars">★★★★★</div><blockquote>“He set up my website chatbot efficiently and went above and beyond to automate email collection.”</blockquote><cite>Chatbot &amp; automation client · July 2024</cite></article>
+        </div>
+        <div class="testimonial-videos" aria-label="Client video testimonials">
+          <figure class="testimonial-video">
+            <video controls preload="metadata" playsinline poster="assets/client-testimonial-website.jpg" aria-label="Client video testimonial one">
+              <source src="assets/client-testimonial-website.mp4" type="video/mp4" />
+              Your browser does not support embedded video.
+            </video>
+            <figcaption>Client testimonial · 01</figcaption>
+          </figure>
+          <figure class="testimonial-video">
+            <video controls preload="metadata" playsinline poster="assets/client-testimonial-automation.jpg" aria-label="Client video testimonial two">
+              <source src="assets/client-testimonial-automation.mp4" type="video/mp4" />
+              Your browser does not support embedded video.
+            </video>
+            <figcaption>Client testimonial · 02</figcaption>
+          </figure>
+        </div>
+        <a class="reviews-link" href="https://www.trustpilot.com/review/artizanale.com" target="_blank" rel="noopener noreferrer">Read my reviews on Trustpilot <span aria-hidden="true">↗</span></a>
+      </div>
+    </section>
+
+    <section id="about">
+      <div class="container about-grid">
+        <aside class="about-aside"><div class="initials" aria-hidden="true">BC</div><p>Bengaly Cisse<br />Founder, Artizanale</p></aside>
+        <div class="about-copy">
+          <div class="eyebrow">Meet Benji</div>
+          <h2>A direct line to the person doing the work.</h2>
+          <p>I’m Bengaly Cisse—Benji to the people I work with. I help Bellevue-area local business owners compete online without the account managers, handoffs, or marketing jargon. You work directly with me, from the first review to launch and beyond.</p>
+          <div class="about-points"><span>Serving Bellevue, WA</span><span>Owner-led</span><span>Built for local services</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="contact" id="contact">
+      <div class="container contact-wrap">
+        <div class="contact-copy">
+          <div class="eyebrow" style="color:inherit">Portfolio pilot · 3 free spots</div>
+          <h2>Claim a Free Google Makeover.</h2>
+          <p>I’m choosing three Bellevue service businesses for free hands-on work across their website and Google presence—in exchange for an honest testimonial.</p>
+          <div class="location"><span aria-hidden="true">●</span> Serving Bellevue, WA</div>
+        </div>
+        <form class="contact-form" id="makeover-form">
+          <div class="form-success" id="form-success" role="status"></div>
+          <div class="request-copy" id="request-copy" hidden><label for="request-text">Your request</label><textarea id="request-text" readonly></textarea></div>
+          <div class="field"><label for="name">Your name</label><input id="name" name="name" aria-label="Your name" autocomplete="name" required /></div>
+          <div class="field"><label for="business">Business name</label><input id="business" name="business" aria-label="Business name" autocomplete="organization" required /></div>
+          <div class="field"><label for="phone">Phone</label><input id="phone" name="phone" type="tel" aria-label="Phone" autocomplete="tel" required /></div>
+          <div class="field"><label for="message">What would you like help with?</label><textarea id="message" name="message" aria-label="What would you like help with?" placeholder="Website, Google Ads, Google Business Profile…"></textarea></div>
+          <button class="btn btn-dark" type="submit">Prepare My Free Makeover Request</button>
+          <p class="form-note">This prepares your details to copy into an email or Instagram DM. 3 Bellevue portfolio-pilot spots; free work in exchange for an honest testimonial, with no outcome promises or obligation to continue.</p>
+        </form>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="container">
+      <div class="footer-top">
+        <div class="footer-brand"><strong>Artizanale.</strong><p>Bellevue Web &amp; Ads · Serving Bellevue, WA</p></div>
+        <nav class="footer-links" aria-label="Footer navigation"><a href="#services">Services</a><a href="#work">Work</a><a href="#audits">Audits</a><a href="#reviews">Reviews</a><a href="#about">About</a><a href="#contact">Contact</a><a href="mailto:cissebengaly02@gmail.com">cissebengaly02@gmail.com</a><a href="tel:+14844797530">(484) 479-7530</a><a href="https://www.trustpilot.com/review/artizanale.com" target="_blank" rel="noopener noreferrer">Trustpilot ↗</a></nav>
+      </div>
+      <div class="footer-bottom">© 2026 Artizanale. All rights reserved.</div>
+    </div>
+  </footer>
+
+  <script>
+    (function () {
+      var header = document.querySelector('.site-header');
+      var menuButton = document.querySelector('.menu-btn');
+      var nav = document.querySelector('.nav-wrap');
+      var links = nav.querySelectorAll('a');
+      var form = document.getElementById('makeover-form');
+      var success = document.getElementById('form-success');
+      var requestCopy = document.getElementById('request-copy');
+      var requestText = document.getElementById('request-text');
+      function closeMenu() {
+        nav.classList.remove('open');
+        document.body.classList.remove('menu-open');
+        menuButton.setAttribute('aria-expanded', 'false');
+        menuButton.setAttribute('aria-label', 'Open navigation');
+      }
+      menuButton.addEventListener('click', function () {
+        var isOpen = nav.classList.toggle('open');
+        document.body.classList.toggle('menu-open', isOpen);
+        menuButton.setAttribute('aria-expanded', String(isOpen));
+        menuButton.setAttribute('aria-label', isOpen ? 'Close navigation' : 'Open navigation');
+      });
+      links.forEach(function (link) { link.addEventListener('click', closeMenu); });
+      window.addEventListener('scroll', function () { header.classList.toggle('scrolled', window.scrollY > 8); }, { passive: true });
+      form.addEventListener('submit', function (event) {
+        event.preventDefault();
+        var data = new FormData(form);
+        var request = [
+          'Free Google Makeover request',
+          '',
+          'Name: ' + data.get('name'),
+          'Business: ' + data.get('business'),
+          'Phone: ' + data.get('phone'),
+          'Help needed: ' + (data.get('message') || 'Not specified')
+        ].join('\n');
+        requestText.value = request;
+        requestCopy.hidden = false;
+        success.textContent = 'Your request is ready below. Copy it into an email or Instagram DM to Artizanale.';
+        success.classList.add('show');
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(request).then(function () {
+            success.textContent = 'Copied—paste this request into an email or Instagram DM to Artizanale.';
+          }).catch(function () {});
+        }
+        success.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      });
+    }());
+  </script>
+</body>
+</html>
