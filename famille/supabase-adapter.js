@@ -119,6 +119,18 @@
     return row;
   }
 
+  /* status is the partner-status column added by
+     supabase/partner-status-migration.sql. Until that migration runs,
+     rows simply have no status field — r.status is undefined and every
+     partner reads as current, exactly as before. */
+  function rowToRel(r) {
+    return {
+      id: r.id, a: r.person_a, b: r.person_b, type: r.type,
+      status: r.status || null,
+      createdBy: r.created_by || "", createdAt: r.created_at
+    };
+  }
+
   function rowToTrait(r) {
     return {
       id: r.id, personId: r.person_id, traitKey: r.trait_key,
@@ -144,9 +156,7 @@
       });
       return {
         people: (parts[0] || []).map(function (r) { return rowToPerson(r, voiceByPerson[r.id]); }),
-        relationships: (parts[1] || []).map(function (r) {
-          return { id: r.id, a: r.person_a, b: r.person_b, type: r.type, createdBy: r.created_by || "", createdAt: r.created_at };
-        }),
+        relationships: (parts[1] || []).map(rowToRel),
         suggestions: (parts[2] || []).map(function (r) {
           return {
             id: r.id, personId: r.person_id, suggesterName: r.suggester_name || "",
@@ -228,14 +238,37 @@
   };
 
   SupabaseAdapter.prototype.addRelationship = function (rel) {
-    return this._rest("relationships", {
-      method: "POST",
+    var self = this;
+    var row = { person_a: rel.a, person_b: rel.b, type: rel.type, created_by: rel.createdBy || null };
+    if (rel.status) row.status = rel.status;
+    var post = function (body) {
+      return self._rest("relationships", {
+        method: "POST",
+        headers: { "Prefer": "return=representation" },
+        body: JSON.stringify(body)
+      });
+    };
+    var attempt = post(row);
+    if (rel.status) {
+      /* Defensive: if the status column doesn't exist yet (migration
+         not run), the link itself must still save — retry without it. */
+      attempt = attempt.catch(function () {
+        var bare = Object.assign({}, row);
+        delete bare.status;
+        return post(bare);
+      });
+    }
+    return attempt.then(function (rows) { return rowToRel(rows[0]); });
+  };
+
+  SupabaseAdapter.prototype.updateRelationship = function (id, patch) {
+    var body = {};
+    if ("status" in patch) body.status = patch.status || null;
+    return this._rest("relationships?id=eq." + encodeURIComponent(id), {
+      method: "PATCH",
       headers: { "Prefer": "return=representation" },
-      body: JSON.stringify({ person_a: rel.a, person_b: rel.b, type: rel.type, created_by: rel.createdBy || null })
-    }).then(function (rows) {
-      var r = rows[0];
-      return { id: r.id, a: r.person_a, b: r.person_b, type: r.type, createdBy: r.created_by || "", createdAt: r.created_at };
-    });
+      body: JSON.stringify(body)
+    }).then(function (rows) { return rowToRel(rows[0]); });
   };
 
   SupabaseAdapter.prototype.deleteRelationship = function (id) {

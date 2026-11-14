@@ -6,6 +6,7 @@
  *   updatePerson(id, patch)          -> saved person
  *   deletePerson(id)
  *   addRelationship(rel)             -> saved relationship
+ *   updateRelationship(id, patch)    -> saved relationship (e.g. partner status)
  *   deleteRelationship(id)
  *   addSuggestion(suggestion)        -> saved suggestion
  *   updateSuggestion(id, patch)      -> saved suggestion
@@ -29,7 +30,11 @@
  *             deathCountry, memorialNote, notes, photo (data URL or URL),
  *             voiceNotes: [{id, authorName, audio, createdAt}],
  *             isSelf, createdBy, createdAt }
- *   Relationship: { id, a, b, type, createdBy, createdAt }
+ *   Relationship: { id, a, b, type, status, createdBy, createdAt }
+ *     status: only meaningful for type 'partner' — null/'current' for a
+ *     current spouse, 'former' for a divorced/separated one. The tree
+ *     draws a former partner's couple link dashed and greyed, and the
+ *     profile labels them as a former spouse.
  *     type 'parent'       : a is a parent of b
  *     type 'step-parent'  : a is a step-parent of b
  *     type 'raised-by'    : a raised b
@@ -241,6 +246,15 @@
     data.relationships.push(saved);
     this._write(data);
     return Promise.resolve(JSON.parse(JSON.stringify(saved)));
+  };
+
+  LocalAdapter.prototype.updateRelationship = function (id, patch) {
+    var data = this._read();
+    var r = data.relationships.find(function (x) { return x.id === id; });
+    if (!r) return Promise.reject(new Error("relationship not found"));
+    Object.assign(r, patch);
+    this._write(data);
+    return Promise.resolve(JSON.parse(JSON.stringify(r)));
   };
 
   LocalAdapter.prototype.deleteRelationship = function (id) {

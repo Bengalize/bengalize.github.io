@@ -175,31 +175,94 @@
     };
   }
 
+  function partnerRelBetween(data, x, y) {
+    var found = null;
+    (data.relationships || []).forEach(function (r) {
+      if (r.type !== "partner") return;
+      if ((r.a === x && r.b === y) || (r.a === y && r.b === x)) found = r;
+    });
+    return found;
+  }
+
   function layoutTree(data) {
     var map = F.byId(data);
     var gens = F.generations(data);
     var placed = {};
     var edges = [];   // {x1,y1,x2,y2} parent->child branch curves
-    var links = [];   // {x1,x2,y} couple links
+    var links = [];   // {x1,x2,y,former} couple links
+    var edgePairs = {}; // "parentId>childId" — every parent edge drawn once
 
     function makeUnit(headId) {
-      var unit = { head: headId, partners: [], children: [], width: 0, rowWidth: 0, cx: 0 };
+      var unit = { head: headId, partners: [], attached: [], children: [], width: 0, rowWidth: 0, cx: 0 };
       placed[headId] = true;
+      var members = [headId]; // parent-row members, in draw order
       F.partnersOf(data, headId).forEach(function (pid) {
-        if (!placed[pid]) { unit.partners.push(pid); placed[pid] = true; }
+        if (!placed[pid]) { unit.partners.push(pid); placed[pid] = true; members.push(pid); }
       });
-      var childIds = [];
-      [headId].concat(unit.partners).forEach(function (pid) {
-        F.childrenOf(data, pid).forEach(function (cid) {
-          if (childIds.indexOf(cid) < 0) childIds.push(cid);
+
+      function collectChildren() {
+        var ids = [];
+        members.forEach(function (pid) {
+          F.childrenOf(data, pid).forEach(function (cid) {
+            if (ids.indexOf(cid) < 0) ids.push(cid);
+          });
         });
-      });
+        return ids;
+      }
+
+      /* Graph-true attachment: a parent must never need a spouse link to
+         reach their child. When this unit claims a child, the child's
+         OTHER parent — if they are not placed yet and everything they
+         connect to is either in this unit or already placed — joins this
+         unit's parent row as an "attached" member (no couple line: the
+         absence of a partner link is respected, the parent-child link is
+         not). The same rescue applies to a lone explicit sibling of a row
+         member (no parents/partners of their own recorded). Without
+         this, such a person fell through to the roots loop and floated
+         as a separate island with NO connector to their own child —
+         exactly what happened to Bengaly's mother (added as his parent
+         only, never as Django's spouse). */
+      function attachableCoParent(pid, childIds) {
+        var partnersFree = F.partnersOf(data, pid).every(function (q) {
+          return placed[q] || members.indexOf(q) >= 0;
+        });
+        if (!partnersFree) return false;
+        return F.childrenOf(data, pid).every(function (c) {
+          return childIds.indexOf(c) >= 0 || !!placed[c];
+        });
+      }
+
+      var childIds = collectChildren();
+      var guard = 0;
+      while (guard++ < 10) {
+        var grew = false;
+        childIds.forEach(function (cid) {
+          F.parentsOf(data, cid).forEach(function (pid) {
+            if (placed[pid] || members.indexOf(pid) >= 0) return;
+            if (!attachableCoParent(pid, childIds)) return;
+            unit.attached.push(pid); placed[pid] = true; members.push(pid); grew = true;
+          });
+        });
+        members.slice().forEach(function (mid) {
+          F.linkedOf(data, mid, "sibling").concat(F.linkedOf(data, mid, "half-sibling"))
+            .forEach(function (sid) {
+              if (placed[sid] || members.indexOf(sid) >= 0) return;
+              if (F.parentsOf(data, sid).length) return;   // claimed via parents instead
+              if (F.partnersOf(data, sid).length) return;  // heads their own couple unit
+              unit.attached.push(sid); placed[sid] = true; members.push(sid); grew = true;
+            });
+        });
+        var now = collectChildren();
+        if (now.length !== childIds.length) { childIds = now; grew = true; }
+        if (!grew) break;
+      }
+
       childIds.sort(byBirthThenName(map));
       childIds.forEach(function (cid) {
         if (placed[cid]) return;
         unit.children.push({ id: cid, unit: makeUnit(cid) });
       });
-      unit.rowWidth = CARD_W + unit.partners.length * (PARTNER_W + 14);
+      unit.rowWidth = CARD_W + (unit.partners.length + unit.attached.length) * (PARTNER_W + 14);
       var kids = unit.children.reduce(function (s, c) { return s + c.unit.width; }, 0) +
         Math.max(0, unit.children.length - 1) * H_GAP;
       unit.width = Math.max(unit.rowWidth, kids);
@@ -227,7 +290,13 @@
       unit.partners.forEach(function (pid) {
         x += 14;
         positions[pid] = { cx: x + PARTNER_W / 2, top: top, w: PARTNER_W, head: unit.head };
-        links.push({ x1: positions[unit.head].cx + CARD_W / 2 - 6, x2: x + 2, y: top + 30 });
+        var prel = partnerRelBetween(data, unit.head, pid);
+        links.push({ x1: positions[unit.head].cx + CARD_W / 2 - 6, x2: x + 2, y: top + 30, former: !!(prel && prel.status === "former") });
+        x += PARTNER_W;
+      });
+      unit.attached.forEach(function (pid) {
+        x += 14;
+        positions[pid] = { cx: x + PARTNER_W / 2, top: top, w: PARTNER_W, head: unit.head, attached: true };
         x += PARTNER_W;
       });
       var kidsWidth = unit.children.reduce(function (s, c) { return s + c.unit.width; }, 0) +
@@ -247,12 +316,30 @@
           ax = unit.cx;
         }
         edges.push({ x1: ax, y1: top + CARD_H, x2: childPos.cx, y2: childPos.top });
+        if (anchorIds.length) {
+          anchorIds.forEach(function (pid) { edgePairs[pid + ">" + child.id] = true; });
+        } else {
+          edgePairs[unit.head + ">" + child.id] = true;
+        }
         kx += child.unit.width + H_GAP;
       });
     }
 
     var cursor = PAD;
     roots.forEach(function (r) { place(r, cursor); cursor += r.width + H_GAP * 2; });
+
+    /* Universal connector pass: EVERY parent-child relationship in the
+       data gets a drawn branch, even when the child was claimed by the
+       other parent's unit and the two parents sit in different units
+       (the anchored edge above only covers the claiming unit). */
+    (data.relationships || []).forEach(function (r) {
+      if (r.type !== "parent") return;
+      if (edgePairs[r.a + ">" + r.b]) return;
+      var pa = positions[r.a], pb = positions[r.b];
+      if (!pa || !pb) return;
+      edges.push({ x1: pa.cx, y1: pa.top + CARD_H, x2: pb.cx, y2: pb.top });
+      edgePairs[r.a + ">" + r.b] = true;
+    });
     var totalW = cursor + PAD;
     var totalH = PAD * 2 + (maxGen + 1) * CARD_H + maxGen * V_GAP;
     return { positions: positions, edges: edges, links: links, width: totalW, height: totalH, gens: gens };
@@ -288,8 +375,8 @@
     var map = F.byId(data);
     var svg = '<svg class="tree-lines" width="' + L.width + '" height="' + L.height + '" aria-hidden="true">';
     L.links.forEach(function (l) {
-      svg += '<line x1="' + l.x1 + '" y1="' + l.y + '" x2="' + l.x2 + '" y2="' + l.y + '" class="couple-line"/>' +
-        '<text x="' + ((l.x1 + l.x2) / 2) + '" y="' + (l.y + 5) + '" class="couple-heart">♥</text>';
+      svg += '<line x1="' + l.x1 + '" y1="' + l.y + '" x2="' + l.x2 + '" y2="' + l.y + '" class="couple-line' + (l.former ? " former" : "") + '"/>' +
+        (l.former ? "" : '<text x="' + ((l.x1 + l.x2) / 2) + '" y="' + (l.y + 5) + '" class="couple-heart">♥</text>');
     });
     L.edges.forEach(function (e) {
       var midY = (e.y1 + e.y2) / 2;
@@ -755,6 +842,11 @@
     }
   }
 
+  function formerLabel(gender) {
+    var g = gender || "unknown";
+    return g === "male" ? t("relFormerHusband") : g === "female" ? t("relFormerWife") : t("relFormerSpouse");
+  }
+
   function chipHTML(p, label, directRelId) {
     return '<span class="chip-wrap">' +
       '<button class="chip" data-action="open-person" data-id="' + esc(p.id) + '">' +
@@ -900,7 +992,18 @@
       return chipHTML(x, t("relRaisedBy"), directRelId(p.id, x.id, ["raised-by"]));
     }));
     fam += familySection(t("partners"), partners.map(function (x) {
-      return chipHTML(x, relLabel("spouse", x.gender), directRelId(p.id, x.id, ["partner"]));
+      var prel = partnerRelBetween(data, p.id, x.id);
+      var isFormer = !!(prel && prel.status === "former");
+      var chip = chipHTML(x, isFormer ? formerLabel(x.gender) : relLabel("spouse", x.gender),
+        directRelId(p.id, x.id, ["partner"]));
+      // The keeper, or the family member who recorded this link, can mark
+      // it divorced / back to current — the tree then draws it dashed.
+      if (prel && (state.keeper || (!!state.contributor && prel.createdBy === state.contributor))) {
+        chip += '<button class="btn btn-small btn-ghost partner-status-btn" data-action="partner-status" ' +
+          'data-rel="' + esc(prel.id) + '" data-former="' + (isFormer ? "1" : "") + '">' +
+          esc(isFormer ? t("markCurrent") : t("markFormer")) + "</button>";
+      }
+      return chip;
     }));
     // Children grouped by the other parent, then the rest.
     var grouped = {};
@@ -1255,6 +1358,8 @@
             '" data-link-kind="' + lk[0] + '">' + lk[1] + " " + esc(t(lk[2])) + "</button>";
         }).join("") +
         "</div>" +
+        '<label class="field check-field" id="pf-link-former-row" style="display:none"><input type="checkbox" id="pf-link-former"> ' +
+          esc(t("formerPartner")) + "</label>" +
         '<input type="search" id="pf-link-search" class="search-input" autocomplete="off" placeholder="' +
           esc(t("searchExisting")) + '">' +
         '<div id="pf-link-chosen"></div>' +
@@ -1410,6 +1515,10 @@
           // "Link to family": the relationship lands with the person,
           // one step, no return trip through the profile.
           var rel = linkRelation(state.formLink, saved.id);
+          if (rel && rel.type === "partner") {
+            var formerBox = document.getElementById("pf-link-former");
+            if (formerBox && formerBox.checked) rel.status = "former";
+          }
           var done = rel ? adapter.addRelationship(rel).catch(function () { return null; })
             : Promise.resolve(null);
           return done.then(function () { return saved; });
@@ -1520,6 +1629,8 @@
         document.querySelectorAll("[data-link-kind]").forEach(function (b) {
           b.classList.toggle("selected", b === btn);
         });
+        var formerRow = document.getElementById("pf-link-former-row");
+        if (formerRow) formerRow.style.display = state.formLink.kind === "spouseOf" ? "block" : "none";
       });
     });
     search.addEventListener("input", drawLinkResults);
@@ -1584,9 +1695,10 @@
     return out;
   }
 
-  function finishRelation(anchorId, kind, otherId) {
+  function finishRelation(anchorId, kind, otherId, former) {
     var rel = relationFor(kind, anchorId, otherId);
     if (!rel) return;
+    if (kind === "spouse" && former) rel.status = "former";
     rel.createdBy = state.contributor;
     adapter.addRelationship(rel).then(function () {
       closeModal();
@@ -1631,9 +1743,17 @@
     openModal('<h3>' + esc(kindLabel(kind)) + " — " + esc(anchor.fullName) + "</h3>" +
       '<p class="form-hint">' + esc(t("pickExisting")) + "</p>" +
       '<input type="search" id="relSearch" class="search-input" placeholder="' + esc(t("searchExisting")) + '">' +
+      (kind === "spouse"
+        ? '<label class="field check-field rel-former-row"><input type="checkbox" id="relFormer"> ' +
+          esc(t("formerPartner")) + '<span class="date-hint">' + esc(t("formerPartnerHint")) + "</span></label>"
+        : "") +
       '<div id="relResults" class="person-list compact"></div>' +
       '<div class="form-actions"><span class="or-new">' + esc(t("orNew")) + '</span>' +
       '<button class="btn btn-primary" id="relCreate">' + esc(t("createNewPerson")) + "</button></div>");
+    function formerChecked() {
+      var box = document.getElementById("relFormer");
+      return !!(box && box.checked);
+    }
 
     function draw(query) {
       var q = (query || "").trim().toLowerCase();
@@ -1654,18 +1774,19 @@
       document.querySelectorAll("#relResults [data-id]").forEach(function (row) {
         row.addEventListener("click", function (e) {
           e.stopPropagation(); // the global delegation would open the profile instead
-          finishRelation(anchor.id, kind, row.getAttribute("data-id"));
+          finishRelation(anchor.id, kind, row.getAttribute("data-id"), formerChecked());
         });
       });
     }
     draw("");
     document.getElementById("relSearch").addEventListener("input", function (e) { draw(e.target.value); });
     document.getElementById("relCreate").addEventListener("click", function () {
+      var wasFormer = formerChecked(); // read before the form replaces this modal
       openPersonForm({
         existing: null,
         hideLink: true, // the relation is already being made by this flow
-        onSaved: function (saved) { finishRelation(anchor.id, kind, saved.id); },
-        onUseExisting: function (found) { finishRelation(anchor.id, kind, found.id); }
+        onSaved: function (saved) { finishRelation(anchor.id, kind, saved.id, wasFormer); },
+        onUseExisting: function (found) { finishRelation(anchor.id, kind, found.id, wasFormer); }
       });
     });
   }
@@ -1910,6 +2031,14 @@
       case "delete-rel":
         adapter.deleteRelationship(target.getAttribute("data-rel")).then(function () { refresh(); });
         break;
+      case "partner-status": {
+        var prelId = target.getAttribute("data-rel");
+        var makeFormer = target.getAttribute("data-former") !== "1";
+        adapter.updateRelationship(prelId, { status: makeFormer ? "former" : null })
+          .then(function () { toast(t("saved")); refresh(); })
+          .catch(function () { toast(t("formerSaveFailed")); });
+        break;
+      }
       case "accept-sugg": {
         var sugg = state.data.suggestions.find(function (s) { return s.id === target.getAttribute("data-sugg"); });
         if (!sugg) break;
