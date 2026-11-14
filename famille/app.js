@@ -311,6 +311,46 @@
         if (placed[cid]) return;
         unit.children.push({ id: cid, unit: makeUnit(cid) });
       });
+
+      /* Row order for ADJACENCY (Django's rule): a child's branch
+         anchors at the midpoint of its OWN two parents, so the
+         parents must sit next to each other — with another partner
+         seated between them, the midpoint lands in the middle of
+         that partner's card and the line reads as if the child
+         connects through the wrong mother. So the row is seated by
+         preference: co-parents of this unit's children first
+         (eldest shared child first), then everyone else; place()
+         deals them alternately right and left of the head, so the
+         first two co-parents are ALWAYS adjacent to the head and
+         each of their children's anchors falls in the gap between
+         its own two parents. Deterministic: shared-child presence,
+         then eldest shared child's birth year, then name, then id —
+         never input order. (A third co-parent cannot also touch
+         the head in a single row; their children still anchor at
+         their own parents' true midpoint, drawn above the cards.) */
+      var rowMates = unit.partners.map(function (pid) { return { id: pid, partner: true }; })
+        .concat(unit.attached.map(function (pid) { return { id: pid, partner: false }; }));
+      rowMates.forEach(function (m) {
+        m.shared = false;
+        m.sharedBirth = null;
+        F.childrenOf(data, m.id).forEach(function (cid) {
+          if (childIds.indexOf(cid) < 0) return;
+          m.shared = true;
+          var by = map[cid] && map[cid].birth && map[cid].birth.y;
+          if (by && (m.sharedBirth === null || by < m.sharedBirth)) m.sharedBirth = by;
+        });
+      });
+      rowMates.sort(function (m1, m2) {
+        if (m1.shared !== m2.shared) return m1.shared ? -1 : 1;
+        var b1 = m1.sharedBirth === null ? Infinity : m1.sharedBirth;
+        var b2 = m2.sharedBirth === null ? Infinity : m2.sharedBirth;
+        if (b1 !== b2) return b1 - b2;
+        var n1 = map[m1.id] ? map[m1.id].fullName : "";
+        var n2 = map[m2.id] ? map[m2.id].fullName : "";
+        if (n1 !== n2) return n1 < n2 ? -1 : 1;
+        return m1.id < m2.id ? -1 : m1.id > m2.id ? 1 : 0;
+      });
+      unit.rowMates = rowMates;
       unit.rowWidth = CARD_W + (unit.partners.length + unit.attached.length) * (PARTNER_W + 14);
       var kids = unit.children.reduce(function (s, c) { return s + c.unit.width; }, 0) +
         Math.max(0, unit.children.length - 1) * H_GAP;
@@ -350,20 +390,33 @@
       var gen = gens[unit.head] || 0;
       var top = rowTop[gen];
       var rowLeft = unit.cx - unit.rowWidth / 2;
-      positions[unit.head] = { cx: rowLeft + CARD_W / 2, top: top, w: CARD_W, h: nodeHeight(map[unit.head], CARD_W), head: unit.head };
-      var x = rowLeft + CARD_W;
-      unit.partners.forEach(function (pid) {
-        x += 14;
-        positions[pid] = { cx: x + PARTNER_W / 2, top: top, w: PARTNER_W, h: nodeHeight(map[pid], PARTNER_W), head: unit.head };
-        var prel = partnerRelBetween(data, unit.head, pid);
-        links.push({ x1: positions[unit.head].cx + CARD_W / 2 - 6, x2: x + 2, y: top + 30, former: !!(prel && prel.status === "former"), a: unit.head, b: pid });
-        x += PARTNER_W;
-      });
-      unit.attached.forEach(function (pid) {
-        x += 14;
-        positions[pid] = { cx: x + PARTNER_W / 2, top: top, w: PARTNER_W, h: nodeHeight(map[pid], PARTNER_W), head: unit.head, attached: true };
-        x += PARTNER_W;
-      });
+      /* Deal the row-mates alternately right and left of the head
+         (adjacency order computed in makeUnit): the first co-parent
+         sits immediately right of the head, the second immediately
+         left, so both are adjacent and their children's branches
+         anchor in the gap between their own two parents. */
+      var mates = unit.rowMates || [];
+      var rightMates = [], leftMates = [];
+      mates.forEach(function (m, i) { (i % 2 === 0 ? rightMates : leftMates).push(m); });
+      var headLeft = rowLeft + leftMates.length * (PARTNER_W + 14);
+      positions[unit.head] = { cx: headLeft + CARD_W / 2, top: top, w: CARD_W, h: nodeHeight(map[unit.head], CARD_W), head: unit.head };
+      function placeMate(m, cardLeft) {
+        var pos = { cx: cardLeft + PARTNER_W / 2, top: top, w: PARTNER_W, h: nodeHeight(map[m.id], PARTNER_W), head: unit.head };
+        if (!m.partner) pos.attached = true;
+        positions[m.id] = pos;
+        if (m.partner) {
+          var prel = partnerRelBetween(data, unit.head, m.id);
+          var hp = positions[unit.head];
+          var x1, x2;
+          if (pos.cx > hp.cx) { x1 = hp.cx + CARD_W / 2 - 6; x2 = pos.cx - PARTNER_W / 2 + 2; }
+          else { x1 = pos.cx + PARTNER_W / 2 - 2; x2 = hp.cx - CARD_W / 2 + 6; }
+          links.push({ x1: x1, x2: x2, y: top + 30, former: !!(prel && prel.status === "former"), a: unit.head, b: m.id });
+        }
+      }
+      var x = rowLeft;
+      leftMates.slice().reverse().forEach(function (m) { placeMate(m, x); x += PARTNER_W + 14; });
+      x = headLeft + CARD_W;
+      rightMates.forEach(function (m) { x += 14; placeMate(m, x); x += PARTNER_W; });
       var kidsWidth = unit.children.reduce(function (s, c) { return s + c.unit.width; }, 0) +
         Math.max(0, unit.children.length - 1) * H_GAP;
       var kx = unit.cx - kidsWidth / 2;
@@ -374,11 +427,16 @@
         var anchorIds = F.parentsOf(data, child.id).filter(function (pid) { return positions[pid] && positions[pid].head === unit.head; });
         var ax;
         if (anchorIds.length >= 2) {
+          /* PER-CHILD ANCHORING: the midpoint of THIS child's own two
+             parents — never a unit center shared with other partners'
+             children. */
           ax = (positions[anchorIds[0]].cx + positions[anchorIds[1]].cx) / 2;
         } else if (anchorIds.length === 1) {
           ax = positions[anchorIds[0]].cx;
         } else {
-          ax = unit.cx;
+          /* No parent of this child sits in this row: fall back to the
+             unit head's own drop point (a person, not a center). */
+          ax = positions[unit.head].cx;
         }
         var fromIds = anchorIds.length ? anchorIds : [unit.head];
         var y1 = Math.max.apply(null, fromIds.map(function (pid) {
