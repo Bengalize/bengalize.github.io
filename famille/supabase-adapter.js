@@ -262,13 +262,33 @@
   };
 
   SupabaseAdapter.prototype.updateRelationship = function (id, patch) {
+    var self = this;
     var body = {};
+    if ("a" in patch) body.person_a = patch.a;
+    if ("b" in patch) body.person_b = patch.b;
+    if ("type" in patch) body.type = patch.type;
     if ("status" in patch) body.status = patch.status || null;
-    return this._rest("relationships?id=eq." + encodeURIComponent(id), {
-      method: "PATCH",
-      headers: { "Prefer": "return=representation" },
-      body: JSON.stringify(body)
-    }).then(function (rows) { return rowToRel(rows[0]); });
+    var send = function (payload) {
+      return self._rest("relationships?id=eq." + encodeURIComponent(id), {
+        method: "PATCH",
+        headers: { "Prefer": "return=representation" },
+        body: JSON.stringify(payload)
+      });
+    };
+    var attempt = send(body);
+    var carriesLinkChange = "person_a" in body || "person_b" in body || "type" in body;
+    if ("status" in body && carriesLinkChange) {
+      /* Defensive, same pattern as addRelationship: if the status
+         column doesn't exist yet (migration not run), a link FIX must
+         still land — retry without the status field. A status-only
+         patch keeps the old behavior: it rejects, and the UI toasts. */
+      attempt = attempt.catch(function () {
+        var bare = Object.assign({}, body);
+        delete bare.status;
+        return send(bare);
+      });
+    }
+    return attempt.then(function (rows) { return rowToRel(rows[0]); });
   };
 
   SupabaseAdapter.prototype.deleteRelationship = function (id) {

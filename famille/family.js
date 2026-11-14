@@ -220,17 +220,57 @@
     return scored.slice(0, 3);
   }
 
+  /* Parent links that lie on a LOOP: a is recorded as a parent of b,
+     yet b is also an ancestor of a — following parent links up from a
+     comes back around to b, making someone their own ancestor. That
+     can only be a data mistake (a wrong link), and it used to send
+     generation counting into a runaway (the stats strip once showed
+     "102 generations" on a 3-generation family). Returns the rel
+     objects; the link manager uses this to warn on the exact row. */
+  function cyclicParentLinks(data) {
+    var up = {};
+    (data.people || []).forEach(function (p) { up[p.id] = []; });
+    relsOfType(data, "parent").forEach(function (r) {
+      if (up[r.b]) up[r.b].push(r.a);
+    });
+    function ancestorSet(id) {
+      var seen = {}, queue = (up[id] || []).slice();
+      while (queue.length) {
+        var cur = queue.pop();
+        if (seen[cur]) continue;
+        seen[cur] = true;
+        (up[cur] || []).forEach(function (x) { queue.push(x); });
+      }
+      return seen;
+    }
+    var cache = {};
+    return relsOfType(data, "parent").filter(function (r) {
+      if (r.a === r.b) return true;
+      var anc = cache[r.a] || (cache[r.a] = ancestorSet(r.a));
+      return !!anc[r.b];
+    });
+  }
+
   /* Generations: 0 = eldest known. Blood-parent longest path, then
      equalized across sibling and partner links so couples and siblings
-     sit on the same row. */
+     sit on the same row. CYCLE-SAFE: parent links that lie on a loop
+     (see cyclicParentLinks) are ignored — what remains is a DAG, whose
+     longest path can never exceed the number of people — and the
+     relaxation is additionally capped at that bound, so no data
+     mistake can ever produce an absurd generation number again. */
   function generations(data) {
     var gen = {};
-    (data.people || []).forEach(function (p) { gen[p.id] = 0; });
+    var people = data.people || [];
+    people.forEach(function (p) { gen[p.id] = 0; });
+    var cap = Math.max(1, people.length);
+    var loopIds = {};
+    cyclicParentLinks(data).forEach(function (r) { loopIds[r.id] = true; });
     var changed = true, guard = 0;
-    while (changed && guard++ < 100) {
+    while (changed && guard++ < 200) {
       changed = false;
       relsOfType(data, "parent").forEach(function (r) {
-        if (gen[r.b] < gen[r.a] + 1) { gen[r.b] = gen[r.a] + 1; changed = true; }
+        if (loopIds[r.id]) return;
+        if (gen[r.b] < gen[r.a] + 1) { gen[r.b] = Math.min(cap, gen[r.a] + 1); changed = true; }
       });
       ["sibling", "half-sibling", "partner", "cousin"].forEach(function (type) {
         relsOfType(data, type).forEach(function (r) {
@@ -259,6 +299,7 @@
     normalizeName: normalizeName,
     nameSimilarity: nameSimilarity,
     findSimilar: findSimilar,
-    generations: generations
+    generations: generations,
+    cyclicParentLinks: cyclicParentLinks
   };
 })(typeof window !== "undefined" ? window : globalThis);

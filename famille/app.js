@@ -28,7 +28,8 @@
     formVoice: null,        // pending voice data URL inside suggestion form
     formLink: null,         // pending "link to family" choice in the create form
     globeCountry: null,     // country selected in the Globe view
-    showAllTraitsFor: null  // profile id whose trait list is fully expanded
+    showAllTraitsFor: null, // profile id whose trait list is fully expanded
+    filter: null            // one active view filter (session-only UI state)
   };
 
   function t(key) {
@@ -39,6 +40,13 @@
     return String(s == null ? "" : s)
       .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  }
+
+  /* "{name} has been removed." + {name: "X"} -> "X has been removed." */
+  function fillTpl(str, map) {
+    return String(str).replace(/\{(\w+)\}/g, function (m, k) {
+      return map && map[k] != null ? String(map[k]) : m;
+    });
   }
 
   function person(id) {
@@ -184,12 +192,53 @@
     return found;
   }
 
+  /* Name measurement for tree cards: a name is NEVER clipped, here or
+     anywhere else. The card grows instead — short names keep the
+     classic 104px card, long names wrap to more lines (with a stepwise
+     smaller font for the very long ones), and the layout reserves the
+     height the wrapped name needs, so grown cards never overlap the
+     row below. Estimates run a touch generous on purpose: a card that
+     is 4px too tall is invisible; a clipped name is not. */
+  function nameSizeClass(p) {
+    var len = (p && p.fullName ? p.fullName : "").length;
+    return len > 46 ? "name-xs" : len > 32 ? "name-sm" : "";
+  }
+
+  function wrapLineCount(text, innerW, charW) {
+    var words = String(text || "").split(/\s+/).filter(Boolean);
+    if (!words.length) return 1;
+    var lines = 1, cur = 0;
+    words.forEach(function (w) {
+      var wl = w.length * charW;
+      if (wl > innerW) { // one very long word wraps mid-word (overflow-wrap: anywhere)
+        if (cur > 0) { lines++; cur = 0; }
+        var extra = Math.ceil(wl / innerW) - 1;
+        lines += extra;
+        cur = wl - extra * innerW;
+        return;
+      }
+      var add = (cur > 0 ? charW : 0) + wl;
+      if (cur + add > innerW) { lines++; cur = wl; } else { cur += add; }
+    });
+    return lines;
+  }
+
+  function nodeHeight(p, w) {
+    var cls = nameSizeClass(p);
+    var fs = cls === "name-xs" ? 11.2 : cls === "name-sm" ? 12.5 : 13.8;
+    var lines = wrapLineCount(p.fullName, w - 14, fs * 0.58);
+    var hasYears = !!yearsLine(p), hasFlags = !!flagPair(p);
+    var items = 2 + (hasYears ? 1 : 0) + (hasFlags ? 1 : 0); // avatar + name + …
+    var h = 14 + 46 + lines * fs * 1.22 + (hasYears ? 18 : 0) + (hasFlags ? 14 : 0) + (items - 1) * 2 + 4;
+    return Math.max(CARD_H, Math.ceil(h));
+  }
+
   function layoutTree(data) {
     var map = F.byId(data);
     var gens = F.generations(data);
     var placed = {};
-    var edges = [];   // {x1,y1,x2,y2} parent->child branch curves
-    var links = [];   // {x1,x2,y,former} couple links
+    var edges = [];   // {x1,y1,x2,y2,fromIds,toId} parent->child branch curves
+    var links = [];   // {x1,x2,y,former,a,b} couple links
     var edgePairs = {}; // "parentId>childId" — every parent edge drawn once
 
     function makeUnit(headId) {
@@ -276,27 +325,43 @@
     candidates.forEach(function (p) { if (!placed[p.id]) roots.push(makeUnit(p.id)); });
     data.people.forEach(function (p) { if (!placed[p.id]) roots.push(makeUnit(p.id)); });
 
-    var positions = {}; // id -> {cx, top, w, head:boolean}
+    var positions = {}; // id -> {cx, top, w, h, head:boolean}
     var maxGen = 0;
     Object.keys(gens).forEach(function (id) { if (gens[id] > maxGen) maxGen = gens[id]; });
+
+    /* Row heights: each generation row is as tall as its tallest card
+       (measured at the narrowest card width, so a head's wider card can
+       only come out shorter) — grown cards never reach into the row
+       below, and branch anchors use each card's own real height. */
+    var rowH = [], rowTop = [];
+    (function () {
+      var acc = PAD;
+      for (var g = 0; g <= maxGen; g++) {
+        var h = CARD_H;
+        data.people.forEach(function (p) {
+          if ((gens[p.id] || 0) === g) h = Math.max(h, nodeHeight(p, PARTNER_W));
+        });
+        rowH[g] = h; rowTop[g] = acc; acc += h + V_GAP;
+      }
+    })();
 
     function place(unit, left) {
       unit.cx = left + unit.width / 2;
       var gen = gens[unit.head] || 0;
-      var top = PAD + gen * (CARD_H + V_GAP);
+      var top = rowTop[gen];
       var rowLeft = unit.cx - unit.rowWidth / 2;
-      positions[unit.head] = { cx: rowLeft + CARD_W / 2, top: top, w: CARD_W, head: unit.head };
+      positions[unit.head] = { cx: rowLeft + CARD_W / 2, top: top, w: CARD_W, h: nodeHeight(map[unit.head], CARD_W), head: unit.head };
       var x = rowLeft + CARD_W;
       unit.partners.forEach(function (pid) {
         x += 14;
-        positions[pid] = { cx: x + PARTNER_W / 2, top: top, w: PARTNER_W, head: unit.head };
+        positions[pid] = { cx: x + PARTNER_W / 2, top: top, w: PARTNER_W, h: nodeHeight(map[pid], PARTNER_W), head: unit.head };
         var prel = partnerRelBetween(data, unit.head, pid);
-        links.push({ x1: positions[unit.head].cx + CARD_W / 2 - 6, x2: x + 2, y: top + 30, former: !!(prel && prel.status === "former") });
+        links.push({ x1: positions[unit.head].cx + CARD_W / 2 - 6, x2: x + 2, y: top + 30, former: !!(prel && prel.status === "former"), a: unit.head, b: pid });
         x += PARTNER_W;
       });
       unit.attached.forEach(function (pid) {
         x += 14;
-        positions[pid] = { cx: x + PARTNER_W / 2, top: top, w: PARTNER_W, head: unit.head, attached: true };
+        positions[pid] = { cx: x + PARTNER_W / 2, top: top, w: PARTNER_W, h: nodeHeight(map[pid], PARTNER_W), head: unit.head, attached: true };
         x += PARTNER_W;
       });
       var kidsWidth = unit.children.reduce(function (s, c) { return s + c.unit.width; }, 0) +
@@ -315,12 +380,12 @@
         } else {
           ax = unit.cx;
         }
-        edges.push({ x1: ax, y1: top + CARD_H, x2: childPos.cx, y2: childPos.top });
-        if (anchorIds.length) {
-          anchorIds.forEach(function (pid) { edgePairs[pid + ">" + child.id] = true; });
-        } else {
-          edgePairs[unit.head + ">" + child.id] = true;
-        }
+        var fromIds = anchorIds.length ? anchorIds : [unit.head];
+        var y1 = Math.max.apply(null, fromIds.map(function (pid) {
+          return positions[pid].top + positions[pid].h;
+        }));
+        edges.push({ x1: ax, y1: y1, x2: childPos.cx, y2: childPos.top, fromIds: fromIds, toId: child.id });
+        fromIds.forEach(function (pid) { edgePairs[pid + ">" + child.id] = true; });
         kx += child.unit.width + H_GAP;
       });
     }
@@ -337,11 +402,11 @@
       if (edgePairs[r.a + ">" + r.b]) return;
       var pa = positions[r.a], pb = positions[r.b];
       if (!pa || !pb) return;
-      edges.push({ x1: pa.cx, y1: pa.top + CARD_H, x2: pb.cx, y2: pb.top });
+      edges.push({ x1: pa.cx, y1: pa.top + pa.h, x2: pb.cx, y2: pb.top, fromIds: [r.a], toId: r.b });
       edgePairs[r.a + ">" + r.b] = true;
     });
     var totalW = cursor + PAD;
-    var totalH = PAD * 2 + (maxGen + 1) * CARD_H + maxGen * V_GAP;
+    var totalH = rowTop[maxGen] + rowH[maxGen] + PAD;
     return { positions: positions, edges: edges, links: links, width: totalW, height: totalH, gens: gens };
   }
 
@@ -365,6 +430,204 @@
     applyTransform();
   }
 
+  /* ------------------------------------------------------------ */
+  /* Filters — ONE at a time, shared by Tree / People / Globe.     */
+  /* Session-only UI state: never stored, never exported. The      */
+  /* tree dims non-matches in place (layout never breaks), the     */
+  /* people list hard-filters, the globe dims dots and stars.      */
+  /* ------------------------------------------------------------ */
+  function ancestorsOf(data, id) {
+    var out = {}, queue = F.parentsOf(data, id);
+    while (queue.length) {
+      var cur = queue.pop();
+      if (out[cur]) continue;
+      out[cur] = true;
+      F.parentsOf(data, cur).forEach(function (x) { queue.push(x); });
+    }
+    return Object.keys(out);
+  }
+
+  function descendantsOf(data, id) {
+    var out = {}, queue = F.childrenOf(data, id);
+    while (queue.length) {
+      var cur = queue.pop();
+      if (out[cur]) continue;
+      out[cur] = true;
+      F.childrenOf(data, cur).forEach(function (x) { queue.push(x); });
+    }
+    return Object.keys(out);
+  }
+
+  /* The ids the active filter keeps bright / listed. null = no filter. */
+  function filterMatchSet() {
+    var f = state.filter, data = state.data;
+    if (!f || !data) return null;
+    var set = {};
+    var add = function (ids) { ids.forEach(function (x) { set[x] = true; }); };
+    if (f.kind === "family") {
+      if (f.relation === "parents") add(F.parentsOf(data, f.personId));
+      else if (f.relation === "children") add(F.childrenOf(data, f.personId));
+      else if (f.relation === "partners") add(F.partnersOf(data, f.personId));
+      else if (f.relation === "siblings") {
+        var s = F.siblingsOf(data, f.personId);
+        add(s.full.concat(s.half));
+      }
+      else if (f.relation === "ancestors") add(ancestorsOf(data, f.personId));
+      else if (f.relation === "descendants") add(descendantsOf(data, f.personId));
+    } else if (f.kind === "place") {
+      data.people.forEach(function (p) {
+        var code = f.mode === "living" ? (p.residenceCountry || p.birthCountry) : p.birthCountry;
+        if (code && code === f.country) set[p.id] = true;
+      });
+    } else if (f.kind === "generation") {
+      var gens = F.generations(data);
+      data.people.forEach(function (p) { if ((gens[p.id] || 0) === f.gen) set[p.id] = true; });
+    } else if (f.kind === "memory") {
+      data.people.forEach(function (p) {
+        if (f.mode === "living" ? !p.death : !!p.death) set[p.id] = true;
+      });
+    }
+    return set;
+  }
+
+  function filterRelationWord(relation) {
+    switch (relation) {
+      case "parents": return t("parents");
+      case "children": return t("children");
+      case "partners": return t("partners");
+      case "siblings": return t("siblings");
+      case "ancestors": return t("filterAncestorsShort");
+      case "descendants": return t("filterDescendantsShort");
+      default: return relation;
+    }
+  }
+
+  function filterLabel() {
+    var f = state.filter;
+    if (!f) return "";
+    if (f.kind === "family") {
+      var p = person(f.personId);
+      return fillTpl(t("filterOf"), { what: filterRelationWord(f.relation), name: p ? p.fullName : "?" });
+    }
+    if (f.kind === "place") {
+      var place = C.flag(f.country) + " " + C.name(f.country, state.lang);
+      return fillTpl(f.mode === "living" ? t("filterLivingInTpl") : t("filterBornInTpl"), { place: place });
+    }
+    if (f.kind === "generation") return fillTpl(t("filterGenerationTpl"), { n: f.gen + 1 });
+    if (f.kind === "memory") return f.mode === "living" ? t("filterLiving") : t("inMemory");
+    return "";
+  }
+
+  function filterBarHTML() {
+    var html = '<div class="filter-bar">' +
+      '<button class="btn btn-small" data-action="filter-open">🔍 ' + esc(t("filterBtn")) + "</button>";
+    if (state.filter) {
+      var set = filterMatchSet();
+      var n = set ? Object.keys(set).length : 0;
+      html += '<span class="filter-chip"><span class="filter-chip-label">' + esc(filterLabel()) + "</span>" +
+        '<span class="filter-chip-count">' +
+        esc(n === 1 ? t("filterPersonOne") : fillTpl(t("filterPeopleCount"), { n: n })) + "</span>" +
+        '<button class="filter-x" data-action="filter-clear" aria-label="' + esc(t("filterClear")) +
+        '" title="' + esc(t("filterClear")) + '">✕</button></span>';
+    }
+    return html + "</div>";
+  }
+
+  function applyFilter(f) {
+    state.filter = f;
+    closeModal();
+    render();
+  }
+
+  function openFilterPanel() {
+    var data = state.data;
+    var livingCounts = {}, bornCounts = {};
+    data.people.forEach(function (p) {
+      var lv = p.residenceCountry || p.birthCountry;
+      if (lv) livingCounts[lv] = (livingCounts[lv] || 0) + 1;
+      if (p.birthCountry) bornCounts[p.birthCountry] = (bornCounts[p.birthCountry] || 0) + 1;
+    });
+    function countrySelect(id, counts) {
+      var codes = Object.keys(counts).sort(function (a, b) {
+        return C.PINNED.indexOf(a) < 0 && C.PINNED.indexOf(b) >= 0 ? 1
+          : C.PINNED.indexOf(b) < 0 && C.PINNED.indexOf(a) >= 0 ? -1
+          : C.name(a, state.lang).localeCompare(C.name(b, state.lang));
+      });
+      return '<select id="' + id + '" class="country-select"><option value="">' + esc(t("pickCountry")) + "</option>" +
+        codes.map(function (code) {
+          return '<option value="' + code + '">' + C.flag(code) + " " + esc(C.name(code, state.lang)) +
+            " (" + counts[code] + ")</option>";
+        }).join("") + "</select>";
+    }
+    var gens = F.generations(data);
+    var genPresent = {};
+    data.people.forEach(function (p) { genPresent[gens[p.id] || 0] = true; });
+    var genBtns = Object.keys(genPresent).map(Number).sort(function (a, b) { return a - b; }).map(function (g) {
+      var members = data.people.filter(function (p) { return (gens[p.id] || 0) === g; })
+        .sort(function (a, b) { return a.fullName.localeCompare(b.fullName); });
+      var examples = members.slice(0, 2).map(function (p) { return p.fullName; }).join(", ");
+      return '<button class="btn filter-opt" data-action="filter-gen" data-gen="' + g + '">' +
+        esc(fillTpl(t("filterGenerationTpl"), { n: g + 1 })) +
+        ' <span class="filter-opt-count">' + members.length + "</span>" +
+        (examples ? '<span class="filter-opt-sub">' + esc(examples) + "</span>" : "") + "</button>";
+    }).join("");
+
+    openModal('<h3>🔍 ' + esc(t("filterTitle")) + "</h3>" +
+      '<h4 class="filter-h">' + esc(t("filterByFamily")) + "</h4>" +
+      '<input type="search" id="filterSearch" class="search-input" placeholder="' + esc(t("searchExisting")) + '">' +
+      '<div id="filterPeople" class="person-list compact"></div>' +
+      '<h4 class="filter-h">' + esc(t("filterByPlace")) + "</h4>" +
+      '<label class="field"><span>' + esc(t("filterLivingInTpl").split("{place}")[0].trim()) + "</span>" +
+      countrySelect("filterLivingSel", livingCounts) + "</label>" +
+      '<label class="field"><span>' + esc(t("birthPlace")) + "</span>" +
+      countrySelect("filterBornSel", bornCounts) + "</label>" +
+      '<h4 class="filter-h">' + esc(t("filterByGeneration")) + "</h4>" +
+      '<div class="filter-opts">' + genBtns + "</div>" +
+      '<h4 class="filter-h">' + esc(t("filterByMemory")) + "</h4>" +
+      '<div class="filter-opts">' +
+      '<button class="btn filter-opt" data-action="filter-memory" data-mode="all">' + esc(t("filterAll")) + "</button>" +
+      '<button class="btn filter-opt" data-action="filter-memory" data-mode="living">' + esc(t("filterLiving")) + "</button>" +
+      '<button class="btn filter-opt" data-action="filter-memory" data-mode="memory">🕊 ' + esc(t("inMemory")) + "</button>" +
+      "</div>");
+
+    function draw(query) {
+      var q = (query || "").trim().toLowerCase();
+      var list = data.people.filter(function (p) {
+        return !q || (p.fullName + " " + (p.nickname || "")).toLowerCase().indexOf(q) >= 0;
+      }).slice().sort(function (a, b) { return a.fullName.localeCompare(b.fullName); });
+      document.getElementById("filterPeople").innerHTML =
+        list.map(function (p) { return personRow(p); }).join("");
+      document.querySelectorAll("#filterPeople [data-id]").forEach(function (row) {
+        row.addEventListener("click", function (e) {
+          e.stopPropagation(); // the global delegation would open the profile instead
+          openFilterRelationStep(row.getAttribute("data-id"));
+        });
+      });
+    }
+    draw("");
+    document.getElementById("filterSearch").addEventListener("input", function (e) { draw(e.target.value); });
+    document.getElementById("filterLivingSel").addEventListener("change", function (e) {
+      if (e.target.value) applyFilter({ kind: "place", mode: "living", country: e.target.value });
+    });
+    document.getElementById("filterBornSel").addEventListener("change", function (e) {
+      if (e.target.value) applyFilter({ kind: "place", mode: "born", country: e.target.value });
+    });
+  }
+
+  function openFilterRelationStep(personId) {
+    var p = person(personId);
+    if (!p) return;
+    var rels = ["parents", "children", "partners", "siblings", "ancestors", "descendants"];
+    openModal('<h3>' + esc(p.fullName) + "</h3>" +
+      '<p class="form-hint">' + esc(t("filterByFamily")) + "</p>" +
+      '<div class="filter-opts">' + rels.map(function (r) {
+        return '<button class="btn filter-opt" data-action="filter-rel" data-person="' + esc(p.id) +
+          '" data-relation="' + r + '">' +
+          esc(fillTpl(t("filterOf"), { what: filterRelationWord(r), name: p.fullName })) + "</button>";
+      }).join("") + "</div>" +
+      '<div class="form-actions"><button class="btn btn-ghost" data-action="filter-open">' + esc(t("back")) + "</button></div>");
+  }
+
   function renderTree(main) {
     var data = state.data;
     if (!data.people.length) {
@@ -373,25 +636,29 @@
     }
     var L = layoutTree(data);
     var map = F.byId(data);
+    var fset = filterMatchSet();
     var svg = '<svg class="tree-lines" width="' + L.width + '" height="' + L.height + '" aria-hidden="true">';
     L.links.forEach(function (l) {
-      svg += '<line x1="' + l.x1 + '" y1="' + l.y + '" x2="' + l.x2 + '" y2="' + l.y + '" class="couple-line' + (l.former ? " former" : "") + '"/>' +
-        (l.former ? "" : '<text x="' + ((l.x1 + l.x2) / 2) + '" y="' + (l.y + 5) + '" class="couple-heart">♥</text>');
+      var dim = fset && !(fset[l.a] && fset[l.b]) ? " link-dim" : "";
+      svg += '<line x1="' + l.x1 + '" y1="' + l.y + '" x2="' + l.x2 + '" y2="' + l.y + '" class="couple-line' + (l.former ? " former" : "") + dim + '"/>' +
+        (l.former ? "" : '<text x="' + ((l.x1 + l.x2) / 2) + '" y="' + (l.y + 5) + '" class="couple-heart' + dim + '">♥</text>');
     });
     L.edges.forEach(function (e) {
       var midY = (e.y1 + e.y2) / 2;
-      svg += '<path d="M ' + e.x1 + " " + e.y1 + " C " + e.x1 + " " + midY + ", " + e.x2 + " " + midY + ", " + e.x2 + " " + e.y2 + '" class="branch"/>';
+      var strong = !fset || (fset[e.toId] && (e.fromIds || []).some(function (pid) { return fset[pid]; }));
+      svg += '<path d="M ' + e.x1 + " " + e.y1 + " C " + e.x1 + " " + midY + ", " + e.x2 + " " + midY + ", " + e.x2 + " " + e.y2 + '" class="branch' + (strong ? "" : " link-dim") + '"/>';
     });
     svg += "</svg>";
 
     var nodes = Object.keys(L.positions).map(function (id) {
       var p = map[id], pos = L.positions[id];
       var deceased = p.death ? " deceased" : "";
-      return '<button class="tree-node' + deceased + '" data-action="open-person" data-id="' + esc(id) + '"' +
+      var dim = fset && !fset[id] ? " node-dim" : "";
+      return '<button class="tree-node' + deceased + dim + '" data-action="open-person" data-id="' + esc(id) + '"' +
         ' style="left:' + (pos.cx - pos.w / 2) + "px;top:" + pos.top + "px;width:" + pos.w +
-        "px;animation-delay:" + Math.min(1.1, (L.gens[id] || 0) * 0.16) + 's">' +
+        "px;height:" + pos.h + "px;animation-delay:" + Math.min(1.1, (L.gens[id] || 0) * 0.16) + 's">' +
         avatarHTML(p, "avatar-node") +
-        '<span class="node-name">' + esc(p.fullName) + "</span>" +
+        '<span class="node-name ' + nameSizeClass(p) + '">' + esc(p.fullName) + "</span>" +
         '<span class="node-years">' + esc(yearsLine(p)) + "</span>" +
         (flagPair(p) ? '<span class="node-flags">' + flagPair(p) + "</span>" : "") +
         "</button>";
@@ -424,7 +691,7 @@
         '<div class="gen-bar" aria-hidden="true">' + genBar + "</div>" +
       "</div>";
 
-    main.innerHTML = statsHTML +
+    main.innerHTML = statsHTML + filterBarHTML() +
       '<div class="tree-toolbar">' +
         '<span class="tree-hint">' + esc(t("treeHint")) + "</span>" +
         '<span class="tree-tools">' +
@@ -441,7 +708,11 @@
         '<span class="leaf" style="right:16%;bottom:16%;animation-duration:12s;animation-delay:-7s" aria-hidden="true">🍃</span>' +
         '<span class="leaf" style="left:44%;top:5%;animation-duration:10s;animation-delay:-5s" aria-hidden="true">🍂</span>' +
         '<div class="tree-canvas" id="treeCanvas" style="width:' + L.width + "px;height:" + L.height + 'px">' +
-          svg + nodes +
+          /* Nodes first, connector layer AFTER (above) them: a branch
+             must never slide invisibly underneath a card — thin lines
+             over card edges are fine, missing lines are not. The SVG
+             is pointer-events:none, so taps still land on the cards. */
+          nodes + svg +
         "</div>" +
       "</div>";
     lastLayout = L;
@@ -637,6 +908,7 @@
   function renderGlobe(main) {
     var data = state.data;
     var groups = globeGroups();
+    var fset = filterMatchSet();
     var codes = Object.keys(groups).sort(function (a, b) {
       return groups[b].length - groups[a].length || C.name(a, state.lang).localeCompare(C.name(b, state.lang));
     });
@@ -656,7 +928,8 @@
       if (!p.visible) return "";
       var n = groups[code].length;
       var r = 12 + 4 * Math.sqrt(n);
-      return '<g class="globe-dot" data-globe-country="' + esc(code) + '" role="button" tabindex="0" aria-label="' +
+      var dim = fset && !groups[code].some(function (gp) { return fset[gp.id]; }) ? " dim" : "";
+      return '<g class="globe-dot' + dim + '" data-globe-country="' + esc(code) + '" role="button" tabindex="0" aria-label="' +
         esc(C.name(code, state.lang)) + '">' +
         '<circle class="dot-core" cx="' + p.x.toFixed(1) + '" cy="' + p.y.toFixed(1) + '" r="' + r.toFixed(1) + '"/>' +
         '<text x="' + p.x.toFixed(1) + '" y="' + (p.y + 6).toFixed(1) + '" font-size="17">' + C.flag(code) + "</text>" +
@@ -682,18 +955,20 @@
 
     var stars = gone.map(function (p) {
       var s = starSpot(p);
-      return '<button class="globe-star" data-action="open-person" data-id="' + esc(p.id) +
+      var dim = fset && !fset[p.id] ? " dim" : "";
+      return '<button class="globe-star' + dim + '" data-action="open-person" data-id="' + esc(p.id) +
         '" style="left:' + s.left.toFixed(1) + "%;top:" + s.top.toFixed(1) +
         "%;animation-delay:-" + s.delay.toFixed(1) + 's" title="' + esc(p.fullName) +
         '" aria-label="' + esc(p.fullName) + '">✦</button>';
     }).join("");
 
-    var html = "<h2>" + esc(t("globeTitle")) + "</h2>" +
+    var html = "<h2>" + esc(t("globeTitle")) + "</h2>" + filterBarHTML() +
       '<div class="globe-wrap enter">' + svg + stars + "</div>";
 
     if (codes.length) {
       html += '<div class="globe-countries">' + codes.map(function (code) {
-        return '<button class="globe-country-btn' + (state.globeCountry === code ? " selected" : "") +
+        var dim = fset && !groups[code].some(function (gp) { return fset[gp.id]; }) ? " dim" : "";
+        return '<button class="globe-country-btn' + (state.globeCountry === code ? " selected" : "") + dim +
           '" data-globe-country="' + esc(code) + '">' + C.flag(code) + " " +
           esc(C.name(code, state.lang)) +
           ' <span class="globe-country-count">' + groups[code].length + "</span></button>";
@@ -704,16 +979,18 @@
 
     if (state.globeCountry && groups[state.globeCountry]) {
       var sel = state.globeCountry;
+      var selPeople = groups[sel].slice().sort(function (a, b) { return a.fullName.localeCompare(b.fullName); });
+      if (fset) selPeople = selPeople.filter(function (p) { return !!fset[p.id]; });
       html += '<div class="globe-people"><h3>' + C.flag(sel) + " " + esc(C.name(sel, state.lang)) + "</h3>" +
         '<div class="person-list">' +
-        groups[sel].slice().sort(function (a, b) { return a.fullName.localeCompare(b.fullName); })
-          .map(function (p) { return personRow(p); }).join("") +
+        selPeople.map(function (p) { return personRow(p); }).join("") +
         "</div></div>";
     }
 
-    if (gone.length) {
+    var goneShown = fset ? gone.filter(function (p) { return !!fset[p.id]; }) : gone;
+    if (goneShown.length) {
       html += '<div class="globe-stars-list"><h3>⭐ ' + esc(t("globeStars")) + '</h3><div class="chips">' +
-        gone.map(function (p) {
+        goneShown.map(function (p) {
           return '<button class="chip" data-action="open-person" data-id="' + esc(p.id) + '">' +
             avatarHTML(p, "avatar-chip") +
             '<span class="chip-text"><span class="chip-name">' + esc(p.fullName) + "</span>" +
@@ -750,13 +1027,15 @@
   function renderPeople(main) {
     var data = state.data;
     var q = state.query.trim().toLowerCase();
+    var fset = filterMatchSet();
     var list = data.people.slice().sort(function (a, b) { return a.fullName.localeCompare(b.fullName); });
+    if (fset) list = list.filter(function (p) { return !!fset[p.id]; });
     if (q) {
       list = list.filter(function (p) {
         return (p.fullName + " " + (p.nickname || "")).toLowerCase().indexOf(q) >= 0;
       });
     }
-    main.innerHTML =
+    main.innerHTML = filterBarHTML() +
       '<div class="list-head">' +
         '<input type="search" id="peopleSearch" class="search-input" placeholder="' + esc(t("searchPeople")) + '" value="' + esc(state.query) + '">' +
         '<span class="count-note">' + data.people.length + " " + esc(t("peopleCount")) + "</span>" +
@@ -964,13 +1243,14 @@
 
     html += '<div class="profile-actions">' +
       '<button class="btn btn-primary" data-action="add-relation" data-id="' + esc(p.id) + '">' + esc(t("addFamily")) + "</button>" +
+      '<button class="btn" data-action="fix-links" data-id="' + esc(p.id) + '">' + esc(t("fixLinks")) + "</button>" +
       '<button class="btn" data-action="suggest" data-id="' + esc(p.id) + '">' + esc(t("suggestEdit")) + "</button>" +
       '<button class="btn" data-action="voice-note" data-id="' + esc(p.id) + '">' + esc(t("addVoiceNote")) + "</button>" +
       (p.death
         ? '<span class="in-memory-badge">🕊 ' + esc(t("inMemory")) + "</span>"
         : '<button class="btn" data-action="passing" data-id="' + esc(p.id) + '">' + esc(t("recordPassing")) + "</button>") +
       (canModerate(p) ? '<button class="btn" data-action="edit-person" data-id="' + esc(p.id) + '">' + esc(t("edit")) + "</button>" : "") +
-      (state.keeper ? '<button class="btn btn-danger" data-action="delete-person" data-id="' + esc(p.id) + '">' + esc(t("deleteEntry")) + "</button>" : "") +
+      (canModerate(p) ? '<button class="btn btn-danger" data-action="remove-person" data-id="' + esc(p.id) + '">' + esc(t("removePerson")) + "</button>" : "") +
       "</div>";
 
     /* Family sections */
@@ -1895,6 +2175,189 @@
   }
 
   /* ------------------------------------------------------------ */
+  /* Fix a family link — the link manager                          */
+  /* ------------------------------------------------------------ */
+  /* Who may change or remove a stored link: the family member who
+     recorded it, or the keeper — the same honor rule as editing a
+     person (canModerate) and as the divorced toggle on profiles.
+     Anyone else sees the link, greyed actions, and the pointer to
+     Suggest-an-edit. */
+  function canFixRel(r) {
+    return state.keeper || (!!state.contributor && !!r.createdBy && r.createdBy === state.contributor);
+  }
+
+  /* "brother of Fatou" — the OTHER person's role in a stored link,
+     seen from the profile person's side, in the chip vocabulary. */
+  function relFragment(rel, p, other) {
+    function of(role) {
+      return fillTpl(t("linkFragmentOf"), { role: role, person: p.fullName });
+    }
+    switch (rel.type) {
+      case "parent":
+        return of(relLabel(rel.a === other.id ? "parent" : "child", other.gender).toLowerCase());
+      case "partner":
+        return of((rel.status === "former" ? formerLabel(other.gender) : relLabel("spouse", other.gender)).toLowerCase());
+      case "step-parent":
+        return of(relLabel(rel.a === other.id ? "step-parent" : "stepchild", other.gender).toLowerCase());
+      case "raised-by":
+        return rel.a === other.id
+          ? fillTpl(t("linkFragmentRaised"), { person: p.fullName })
+          : fillTpl(t("linkFragmentRaisedBy"), { person: p.fullName });
+      case "sibling":
+        return of(relLabel("sibling", other.gender).toLowerCase());
+      case "half-sibling":
+        return of(relLabel("half-sibling", other.gender).toLowerCase());
+      case "cousin":
+        return of(relLabel("cousin", other.gender).toLowerCase());
+      default:
+        return rel.type;
+    }
+  }
+
+  /* The change-picker options. The user thinks in sentences ("B is
+     the child of A"); toStored translates to the model's {a, b, type}
+     with the direction handled here, once. */
+  var LINK_OPTS = [
+    { key: "childOf", roleKind: "child", toStored: function (p, o) { return { a: p, b: o, type: "parent" }; } },
+    { key: "parentOf", roleKind: "parent", toStored: function (p, o) { return { a: o, b: p, type: "parent" }; } },
+    { key: "spouseOf", roleKind: "spouse", toStored: function (p, o) { return { a: p, b: o, type: "partner" }; } },
+    { key: "siblingOf", roleKind: "sibling", toStored: function (p, o) { return { a: p, b: o, type: "sibling" }; } },
+    { key: "halfSiblingOf", roleKind: "half-sibling", toStored: function (p, o) { return { a: p, b: o, type: "half-sibling" }; } },
+    { key: "stepParentOf", roleKind: "step-parent", toStored: function (p, o) { return { a: o, b: p, type: "step-parent" }; } },
+    { key: "stepChildOf", roleKind: "stepchild", toStored: function (p, o) { return { a: p, b: o, type: "step-parent" }; } },
+    { key: "raisedByO", raised: "other", toStored: function (p, o) { return { a: o, b: p, type: "raised-by" }; } },
+    { key: "raisedO", raised: "person", toStored: function (p, o) { return { a: p, b: o, type: "raised-by" }; } },
+    { key: "cousinOf", roleKind: "cousin", toStored: function (p, o) { return { a: p, b: o, type: "cousin" }; } }
+  ];
+
+  /* French role words carry their article ("le fils", "l'épouse") so
+     the sentence template stays one string for both languages. */
+  function frRoleArticle(roleKind, gender) {
+    var g = gender || "unknown";
+    switch (roleKind) {
+      case "child": return g === "male" ? "le fils" : g === "female" ? "la fille" : "l'enfant";
+      case "parent": return g === "male" ? "le père" : g === "female" ? "la mère" : "le parent";
+      case "spouse": return g === "male" ? "l'époux" : g === "female" ? "l'épouse" : "le conjoint";
+      case "sibling": return g === "male" ? "le frère" : g === "female" ? "la sœur" : "le frère ou la sœur";
+      case "half-sibling": return g === "male" ? "le demi-frère" : g === "female" ? "la demi-sœur" : "le demi-frère ou la demi-sœur";
+      case "step-parent": return g === "male" ? "le beau-père" : g === "female" ? "la belle-mère" : "le beau-parent";
+      case "stepchild": return "le bel-enfant";
+      case "cousin": return g === "male" ? "le cousin" : g === "female" ? "la cousine" : "le cousin ou la cousine";
+      default: return roleKind;
+    }
+  }
+
+  function linkSentence(opt, other, p) {
+    if (opt.raised === "other") return fillTpl(t("optRaisedOther"), { other: other.fullName, person: p.fullName });
+    if (opt.raised === "person") return fillTpl(t("optRaisedPerson"), { other: other.fullName, person: p.fullName });
+    var role = state.lang === "fr"
+      ? frRoleArticle(opt.roleKind, other.gender)
+      : relLabel(opt.roleKind, other.gender).toLowerCase();
+    return fillTpl(t("linkSentenceOf"), { other: other.fullName, role: role, person: p.fullName });
+  }
+
+  function openLinkManager(p) {
+    if (!p) return;
+    var data = state.data;
+    var map = F.byId(data);
+    var loopIds = {};
+    F.cyclicParentLinks(data).forEach(function (r) { loopIds[r.id] = true; });
+    var stored = (data.relationships || []).filter(function (r) {
+      return r.a === p.id || r.b === p.id;
+    });
+    var storedPairType = {};
+    stored.forEach(function (r) {
+      var o = r.a === p.id ? r.b : r.a;
+      storedPairType[o + "|" + r.type] = true;
+    });
+
+    var rows = stored.map(function (r) {
+      var other = map[r.a === p.id ? r.b : r.a];
+      if (!other) return "";
+      var can = canFixRel(r);
+      return '<div class="link-row"><div class="link-row-main">' +
+        '<span class="link-row-text"><strong>' + esc(other.fullName) + "</strong> — " +
+        esc(t("linkCurrently")) + " " + esc(relFragment(r, p, other)) + "</span>" +
+        (r.type === "parent" && loopIds[r.id]
+          ? '<span class="link-row-loop">' + esc(t("linkLoopWarn")) + "</span>" : "") +
+        (can ? "" : '<span class="link-row-why">' + esc(t("linkLockedWhy")) + "</span>") +
+        "</div>" +
+        (can
+          ? '<span class="link-row-btns">' +
+            '<button class="btn btn-small" data-action="link-change" data-rel="' + esc(r.id) + '" data-id="' + esc(p.id) + '">' + esc(t("linkChange")) + "</button>" +
+            '<button class="btn btn-small btn-danger" data-action="link-remove" data-rel="' + esc(r.id) + '" data-id="' + esc(p.id) + '">' + esc(t("linkRemove")) + "</button></span>"
+          : '<button class="btn btn-small" data-action="suggest" data-id="' + esc(p.id) + '">' + esc(t("suggestEdit")) + "</button>") +
+        "</div>";
+    });
+
+    /* Derived displays with NO stored link behind them get an honest
+       explanation row instead of a fake delete: siblings and cousins
+       are also computed from the tree (shared parents, parents'
+       siblings), so there may be nothing stored to change or remove. */
+    var derived = [];
+    function derivedRow(oid, roleKind, note) {
+      var o = map[oid];
+      if (!o) return;
+      derived.push('<div class="link-row derived"><div class="link-row-main">' +
+        '<span class="link-row-text"><strong>' + esc(o.fullName) + "</strong> — " +
+        esc(t("linkCurrently")) + " " +
+        esc(fillTpl(t("linkFragmentOf"), { role: relLabel(roleKind, o.gender).toLowerCase(), person: p.fullName })) + "</span>" +
+        '<span class="link-row-why">' + esc(note) + "</span></div></div>");
+    }
+    var sib = F.siblingsOf(data, p.id);
+    sib.full.forEach(function (oid) {
+      if (!storedPairType[oid + "|sibling"]) derivedRow(oid, "sibling", t("derivedSiblingNote"));
+    });
+    sib.half.forEach(function (oid) {
+      if (!storedPairType[oid + "|half-sibling"]) derivedRow(oid, "half-sibling", t("derivedHalfNote"));
+    });
+    F.cousinsOf(data, p.id).forEach(function (oid) {
+      if (!storedPairType[oid + "|cousin"]) derivedRow(oid, "cousin", t("derivedCousinNote"));
+    });
+
+    var all = rows.concat(derived).join("");
+    openModal('<h3>' + esc(t("fixLinks")) + " — " + esc(p.fullName) + "</h3>" +
+      '<p class="form-hint">' + esc(t("fixLinksHint")) + "</p>" +
+      '<div class="link-rows">' + (all || '<p class="empty">' + esc(t("linkNoLinks")) + "</p>") + "</div>" +
+      '<div class="form-actions"><button class="btn btn-primary" data-action="close-modal">' + esc(t("close")) + "</button></div>");
+  }
+
+  function openLinkChange(p, rel) {
+    var map = F.byId(state.data);
+    var other = map[rel.a === p.id ? rel.b : rel.a];
+    if (!other) return;
+    openModal('<h3>' + esc(t("linkChoose")) + "</h3>" +
+      '<p class="form-hint"><strong>' + esc(other.fullName) + "</strong> &amp; <strong>" + esc(p.fullName) + "</strong></p>" +
+      '<div class="link-opts">' + LINK_OPTS.map(function (opt) {
+        var target = opt.toStored(p.id, other.id);
+        /* Symmetric types (partner, sibling, half-sibling, cousin)
+           have no direction: the same link stored either way round
+           is the current one. */
+        var symmetric = { partner: 1, sibling: 1, "half-sibling": 1, cousin: 1 };
+        var isCurrent = target.type === rel.type &&
+          ((target.a === rel.a && target.b === rel.b) ||
+           (symmetric[rel.type] && target.a === rel.b && target.b === rel.a));
+        return '<button class="kind-btn link-opt' + (isCurrent ? " picked" : "") + '" data-action="link-set" data-rel="' +
+          esc(rel.id) + '" data-id="' + esc(p.id) + '" data-opt="' + opt.key + '">' +
+          "<span>" + esc(linkSentence(opt, other, p)) + "</span>" +
+          (isCurrent ? '<span class="link-cur">' + esc(t("linkCurrentTag")) + "</span>" : "") + "</button>";
+      }).join("") + "</div>" +
+      '<div class="form-actions"><button class="btn btn-ghost" data-action="fix-links" data-id="' + esc(p.id) + '">' + esc(t("back")) + "</button></div>");
+  }
+
+  /* Remove a person — discoverable and safe: a named, two-step
+     confirm that says plainly what goes with them. The people they
+     were linked to stay; deletePerson cascades the links (both
+     adapters). */
+  function openRemovePerson(p) {
+    if (!p) return;
+    openModal('<h3>' + esc(fillTpl(t("removeConfirmTitle"), { name: p.fullName })) + "</h3>" +
+      '<p class="form-hint">' + esc(t("removeConfirmText")) + "</p>" +
+      '<div class="form-actions"><button class="btn btn-ghost" data-action="close-modal">' + esc(t("cancel")) + "</button>" +
+      '<button class="btn btn-danger" data-action="delete-person" data-id="' + esc(p.id) + '">' + esc(t("removeConfirmBtn")) + "</button></div>");
+  }
+
+  /* ------------------------------------------------------------ */
   /* Export / import                                               */
   /* ------------------------------------------------------------ */
   function doExport() {
@@ -2019,15 +2482,116 @@
       case "edit-person":
         openPersonForm({ existing: person(id), onSaved: function () { refresh(); } });
         break;
-      case "delete-person":
-        if (window.confirm(t("deleteConfirm"))) {
-          adapter.deletePerson(id).then(function () {
-            toast(t("deleted"));
-            state.view = "people";
-            refresh();
+      case "remove-person": openRemovePerson(person(id)); break;
+      case "delete-person": {
+        var pDel = person(id);
+        var nameDel = pDel ? pDel.fullName : "";
+        adapter.deletePerson(id).then(function () {
+          closeModal();
+          toast(fillTpl(t("removeDone"), { name: nameDel }));
+          state.view = "tree";
+          state.selectedId = null;
+          state.needsFit = true;
+          refresh();
+        });
+        break;
+      }
+      case "fix-links": openLinkManager(person(id)); break;
+      case "link-change": {
+        var relCh = (state.data.relationships || []).find(function (r) {
+          return r.id === target.getAttribute("data-rel");
+        });
+        if (relCh && person(id)) openLinkChange(person(id), relCh);
+        break;
+      }
+      case "link-set": {
+        var relSet = (state.data.relationships || []).find(function (r) {
+          return r.id === target.getAttribute("data-rel");
+        });
+        var pSet = person(id);
+        var optSet = LINK_OPTS.filter(function (o) {
+          return o.key === target.getAttribute("data-opt");
+        })[0];
+        if (!relSet || !pSet || !optSet) break;
+        var otherSet = person(relSet.a === pSet.id ? relSet.b : relSet.a);
+        if (!otherSet) break;
+        var targetRel = optSet.toStored(pSet.id, otherSet.id);
+        /* A partner link keeps its divorced/current status when it
+           stays a partner link; any other type drops it cleanly. */
+        var newStatus = targetRel.type === "partner" ? (relSet.status || null) : null;
+        var conflict = (state.data.relationships || []).find(function (r2) {
+          return r2.id !== relSet.id && r2.type === targetRel.type &&
+            ((r2.a === targetRel.a && r2.b === targetRel.b) ||
+             (r2.a === targetRel.b && r2.b === targetRel.a));
+        });
+        var setOp;
+        if (conflict) {
+          /* The wanted link already exists as its own row: this row
+             simply goes away (and hands its divorced status over). */
+          setOp = adapter.deleteRelationship(relSet.id);
+          if (targetRel.type === "partner" && newStatus === "former") {
+            setOp = setOp.then(function () {
+              return adapter.updateRelationship(conflict.id, { status: "former" }).catch(function () {});
+            });
+          }
+        } else {
+          setOp = adapter.updateRelationship(relSet.id, {
+            a: targetRel.a, b: targetRel.b, type: targetRel.type, status: newStatus
           });
         }
+        setOp.then(function () {
+          toast(t("linkChanged"));
+          return refresh();
+        }).then(function () {
+          openLinkManager(person(pSet.id));
+        }).catch(function () { toast(t("linkSaveFailed")); });
         break;
+      }
+      case "link-remove": {
+        var relRm = (state.data.relationships || []).find(function (r) {
+          return r.id === target.getAttribute("data-rel");
+        });
+        var pRm = person(id);
+        if (!relRm || !pRm) break;
+        var otherRm = person(relRm.a === pRm.id ? relRm.b : relRm.a);
+        if (window.confirm(fillTpl(t("linkRemoveConfirm"), {
+          a: pRm.fullName, b: otherRm ? otherRm.fullName : "?"
+        }))) {
+          adapter.deleteRelationship(relRm.id).then(function () {
+            toast(t("linkRemoved"));
+            return refresh();
+          }).then(function () {
+            openLinkManager(person(pRm.id));
+          }).catch(function () { toast(t("linkSaveFailed")); });
+        }
+        break;
+      }
+      case "filter-open": openFilterPanel(); break;
+      case "filter-clear":
+        state.filter = null;
+        render();
+        break;
+      case "filter-rel":
+        applyFilter({
+          kind: "family",
+          personId: target.getAttribute("data-person"),
+          relation: target.getAttribute("data-relation")
+        });
+        break;
+      case "filter-gen":
+        applyFilter({ kind: "generation", gen: parseInt(target.getAttribute("data-gen"), 10) });
+        break;
+      case "filter-memory": {
+        var fmode = target.getAttribute("data-mode");
+        if (fmode === "all") {
+          state.filter = null;
+          closeModal();
+          render();
+        } else {
+          applyFilter({ kind: "memory", mode: fmode });
+        }
+        break;
+      }
       case "delete-rel":
         adapter.deleteRelationship(target.getAttribute("data-rel")).then(function () { refresh(); });
         break;
