@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="Famille Cisse — l'arbre familial, construit ensemble. The Cisse family tree, built together.">
+<meta name="robots" content="noindex, nofollow">
+<title>Famille Cisse — Arbre familial · Family Tree</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌳</text></svg>">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header id="appHeader"></header>
+<main id="appMain"></main>
+<div id="modalRoot"></div>
+<div id="toast" role="status" aria-live="polite"></div>
+<input type="file" id="photoInput" accept="image/*" hidden>
+<input type="file" id="importInput" accept="application/json,.json" hidden>
+
+<!-- Load order matters: config -> countries -> i18n -> data -> family -> supabase adapter -> app -->
+<script src="config.js"></script>
+<script src="countries.js"></script>
+<script src="i18n.js"></script>
+<script src="data.js"></script>
+<script src="family.js"></script>
+<script src="supabase-adapter.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
