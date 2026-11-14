@@ -98,13 +98,21 @@ h3 { font-size: 1.12rem; margin: 0 0 0.5em; color: var(--leaf-dark); }
 /* ---------- tree ---------- */
 .tree-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
 .tree-hint { color: var(--ink-soft); font-size: 0.88rem; }
-.tree-tools { display: flex; gap: 6px; }
+.tree-tools { display: flex; gap: 6px; flex-wrap: wrap; }
+/* Zoom controls that explain themselves: icon + words, full-size targets. */
+.zoom-btn { font-weight: 700; white-space: nowrap; }
+.zoom-btn span { font-size: 0.95rem; }
 .tree-viewport {
   position: relative; overflow: hidden; height: 72vh; min-height: 420px;
   border: 2px solid var(--line); border-radius: var(--radius);
+  /* A place, not a white box: sunlit canopy at the top, warm earth at the
+     roots, a soft vignette at the edges — the tree lives somewhere. */
   background:
-    radial-gradient(ellipse 60% 40% at 50% -5%, #fdf3d8 0%, rgba(253,243,216,0) 70%),
-    linear-gradient(180deg, #fbf7ee 0%, #f6efdd 78%, #eee3c8 100%);
+    radial-gradient(ellipse 65% 42% at 50% -6%, rgba(226, 240, 198, 0.85) 0%, rgba(226, 240, 198, 0) 70%),
+    radial-gradient(ellipse 55% 34% at 50% -4%, #fdf3d8 0%, rgba(253, 243, 216, 0) 72%),
+    radial-gradient(ellipse 120% 60% at 50% 118%, rgba(146, 108, 62, 0.38) 0%, rgba(146, 108, 62, 0) 62%),
+    linear-gradient(180deg, #f6ecd2 0%, #f1e5c6 52%, #e9d5a4 82%, #dfc48d 100%);
+  box-shadow: inset 0 0 70px rgba(122, 92, 62, 0.22), inset 0 -26px 44px rgba(122, 92, 62, 0.14);
   touch-action: none;
 }
 .tree-canvas { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
@@ -269,6 +277,37 @@ h3 { font-size: 1.12rem; margin: 0 0 0.5em; color: var(--leaf-dark); }
 .kind-btn:active { border-color: var(--leaf); background: var(--leaf-soft); }
 .kind-icon { font-size: 1.6rem; }
 .dup-box { background: #fdf3d0; border: 2px solid var(--gold); border-radius: 12px; padding: 12px; margin-bottom: 14px; }
+/* Live "already in the tree" matches while typing a new name. */
+.live-dup {
+  background: #eef6ea; border: 2px solid var(--leaf-soft); border-radius: 12px;
+  padding: 10px 12px; margin-top: -2px;
+}
+.live-dup-title { font-weight: 800; color: var(--leaf-dark); }
+.dup-live-row {
+  display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+  background: var(--card); border: 2px solid var(--line); border-radius: 12px;
+  padding: 8px 10px; margin-top: 8px; color: var(--ink); min-height: 52px;
+}
+.dup-live-row:active { border-color: var(--leaf); }
+/* The warm "it doesn't have to be complete" line at the top of the form. */
+.form-warm {
+  background: #fdf6da; border: 2px solid var(--gold); border-radius: 12px;
+  padding: 10px 12px; color: #6d5510; font-size: 0.98rem; margin: 0 0 12px;
+}
+/* Link-to-family block on the create form (visible without More details). */
+.link-block { background: #fffdf6; border: 2px dashed var(--bark); border-radius: 12px; padding: 12px; }
+.link-kinds { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 10px; }
+.link-kind-btn {
+  flex: 1 1 42%; min-height: 52px; padding: 10px 8px; font-weight: 700;
+  background: var(--card); border: 2px solid var(--line); border-radius: 12px; color: var(--ink);
+}
+.link-kind-btn.selected { border-color: var(--leaf); background: var(--leaf-soft); color: var(--leaf-dark); }
+.link-results { max-height: 30vh; margin-top: 8px; }
+.link-chosen {
+  display: flex; align-items: center; gap: 10px; background: var(--leaf-soft);
+  border-radius: 12px; padding: 8px 12px; font-weight: 700; margin-top: 8px;
+}
+.link-chosen button { margin-left: auto; flex: none; }
 .dup-row { display: flex; align-items: center; gap: 10px; margin: 8px 0; }
 .dup-text { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 .dup-twin { font-size: 0.9rem; color: #6d5510; }
@@ -310,8 +349,9 @@ audio { max-width: 100%; height: 40px; }
   to { transform: rotate(2.5deg); }
 }
 @keyframes leafFloat {
-  from { transform: translateY(0) rotate(-8deg); }
-  to { transform: translateY(18px) rotate(12deg); }
+  0% { transform: translate(0, 0) rotate(-8deg); }
+  50% { transform: translate(9px, 15px) rotate(6deg); }
+  100% { transform: translate(-5px, 28px) rotate(16deg); }
 }
 @keyframes modalIn {
   from { opacity: 0; transform: translateY(24px); }
@@ -385,3 +425,63 @@ audio { max-width: 100%; height: 40px; }
 .modal-x { width: 44px; height: 44px; }
 .chip-x { width: 28px; height: 28px; }
 .kind-btn { font-size: 1.02rem; }
+
+/* ---------- photo crop (one screen, two controls) ---------- */
+.crop-backdrop {
+  position: fixed; inset: 0; background: rgba(46, 42, 36, 0.68);
+  display: flex; align-items: center; justify-content: center; z-index: 300; padding: 16px;
+}
+.crop-box {
+  background: var(--paper); border-radius: 20px; padding: 18px; width: 100%;
+  max-width: 372px; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.35);
+  animation: modalIn 0.28s cubic-bezier(0.2, 0.9, 0.3, 1) both;
+}
+.crop-box h3 { text-align: center; }
+.crop-frame {
+  position: relative; width: min(74vw, 300px); aspect-ratio: 1 / 1; margin: 6px auto 10px;
+  overflow: hidden; border-radius: 16px; border: 3px solid var(--bark);
+  background: #241d12; touch-action: none; cursor: grab;
+}
+.crop-frame img { position: absolute; left: 0; top: 0; max-width: none; user-select: none; -webkit-user-drag: none; }
+.crop-slider { width: 100%; height: 48px; accent-color: var(--leaf); margin: 2px 0 4px; }
+.crop-box .form-hint { text-align: center; }
+
+/* ---------- globe view ---------- */
+.globe-wrap {
+  position: relative; border: 2px solid var(--line); border-radius: var(--radius);
+  overflow: hidden; box-shadow: inset 0 0 60px rgba(122, 92, 62, 0.20), var(--shadow);
+  background: linear-gradient(180deg, #f4e7c6 0%, #eeddaf 55%, #e3cd97 100%);
+}
+.globe-svg { display: block; width: 100%; height: auto; }
+.globe-spin { transform-origin: 320px 246px; animation: globeSway 26s ease-in-out infinite alternate; }
+@keyframes globeSway {
+  from { transform: rotate(-1.6deg); }
+  to { transform: rotate(1.6deg); }
+}
+.globe-dot { cursor: pointer; }
+.globe-dot circle.dot-core { fill: var(--terra); stroke: #fff; stroke-width: 2.5; }
+.globe-dot text { text-anchor: middle; pointer-events: none; }
+.globe-dot .dot-count { fill: #fff; font-weight: 800; }
+.globe-star {
+  position: absolute; transform: translate(-50%, -50%); background: none; border: none;
+  color: #b8860b; font-size: 19px; line-height: 1; padding: 8px; cursor: pointer;
+  text-shadow: 0 0 9px rgba(201, 162, 39, 0.95), 0 0 3px #fff8dc;
+  animation: twinkle 3.8s ease-in-out infinite alternate;
+}
+@keyframes twinkle {
+  from { opacity: 0.45; transform: translate(-50%, -50%) scale(0.85); }
+  to { opacity: 1; transform: translate(-50%, -50%) scale(1.14); }
+}
+.globe-countries { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 4px; }
+.globe-country-btn {
+  display: inline-flex; align-items: center; gap: 7px; min-height: 48px;
+  background: var(--card); border: 2px solid var(--line); border-radius: 999px;
+  padding: 8px 16px; font-weight: 700; color: var(--ink);
+}
+.globe-country-btn.selected { border-color: var(--leaf); background: var(--leaf-soft); color: var(--leaf-dark); }
+.globe-country-count {
+  background: var(--leaf); color: #fff; font-size: 0.8rem; font-weight: 800;
+  padding: 2px 8px; border-radius: 999px; line-height: 1.3;
+}
+.globe-stars-list { margin-top: 18px; }
+.globe-people { margin-top: 10px; }

@@ -12,17 +12,22 @@
   var adapter = D.createAdapter();
 
   var state = {
-    lang: localStorage.getItem("fc.lang") ||
-      ((navigator.language || "en").toLowerCase().indexOf("fr") === 0 ? "fr" : "en"),
+    // French first — it is the family's language. A saved toggle choice
+    // (localStorage) still wins; only the very first visit defaults to FR.
+    lang: localStorage.getItem("fc.lang") || "fr",
     data: null,
-    view: "tree",           // tree | people | remembered | recent | profile
+    view: "tree",           // tree | globe | people | remembered | recent | profile
     selectedId: null,
     contributor: localStorage.getItem("fc.name") || "",
     keeper: localStorage.getItem("fc.keeper") === "1",
     query: "",
     transform: { k: 1, x: 0, y: 0 },
+    needsFit: true,         // tree view fits itself on load / on entering
+    userMoved: false,       // true once the visitor pans/zooms by hand
     formPhoto: null,        // pending photo data URL inside the person form
     formVoice: null,        // pending voice data URL inside suggestion form
+    formLink: null,         // pending "link to family" choice in the create form
+    globeCountry: null,     // country selected in the Globe view
     showAllTraitsFor: null  // profile id whose trait list is fully expanded
   };
 
@@ -107,6 +112,7 @@
       return;
     }
     if (state.view === "tree") renderTree(main);
+    else if (state.view === "globe") renderGlobe(main);
     else if (state.view === "people") renderPeople(main);
     else if (state.view === "remembered") renderRemembered(main);
     else if (state.view === "recent") renderRecent(main);
@@ -116,7 +122,7 @@
   function renderHeader() {
     var h = document.getElementById("appHeader");
     var tabs = [
-      ["tree", t("viewTree")], ["people", t("viewPeople")],
+      ["tree", t("viewTree")], ["globe", t("viewGlobe")], ["people", t("viewPeople")],
       ["remembered", t("viewRemembered")], ["recent", t("viewRecent")]
     ];
     h.innerHTML =
@@ -252,6 +258,26 @@
     return { positions: positions, edges: edges, links: links, width: totalW, height: totalH, gens: gens };
   }
 
+  /* Fit-on-load: the first thing anyone sees — above all on a phone —
+     is the WHOLE family, centered, never a zoomed-in corner they have
+     to hunt through. Pure math, kept separate so it can be checked. */
+  var lastLayout = null;
+
+  function computeFit(vpW, vpH, cw, ch) {
+    if (!vpW || !vpH || !cw || !ch) return { k: 1, x: 0, y: 0 };
+    var k = Math.min(1, (vpW - 12) / cw, (vpH - 12) / ch);
+    if (!(k > 0)) k = 1;
+    return { k: Math.max(0.08, k), x: (vpW - cw * k) / 2, y: (vpH - ch * k) / 2 };
+  }
+
+  function fitTree() {
+    var vp = document.getElementById("treeViewport");
+    if (!vp || !lastLayout) return;
+    state.transform = computeFit(vp.clientWidth, vp.clientHeight, lastLayout.width, lastLayout.height);
+    state.userMoved = false;
+    applyTransform();
+  }
+
   function renderTree(main) {
     var data = state.data;
     if (!data.people.length) {
@@ -315,21 +341,29 @@
       '<div class="tree-toolbar">' +
         '<span class="tree-hint">' + esc(t("treeHint")) + "</span>" +
         '<span class="tree-tools">' +
-          '<button class="btn btn-small" data-action="zoom-out" title="' + esc(t("zoomOut")) + '">−</button>' +
-          '<button class="btn btn-small" data-action="zoom-reset" title="' + esc(t("zoomReset")) + '">⌂</button>' +
-          '<button class="btn btn-small" data-action="zoom-in" title="' + esc(t("zoomIn")) + '">＋</button>' +
+          '<button class="btn zoom-btn" data-action="zoom-out" aria-label="' + esc(t("zoomOut")) + '">− <span>' + esc(t("zoomOut")) + '</span></button>' +
+          '<button class="btn zoom-btn" data-action="zoom-reset">⌂ <span>' + esc(t("fitTree")) + '</span></button>' +
+          '<button class="btn zoom-btn" data-action="zoom-in" aria-label="' + esc(t("zoomIn")) + '">＋ <span>' + esc(t("zoomIn")) + '</span></button>' +
           '<button class="btn btn-small" data-action="print">' + esc(t("printTree")) + "</button>" +
         "</span>" +
       "</div>" +
       '<div class="tree-viewport enter" id="treeViewport">' +
         '<span class="leaf" style="left:5%;top:8%;animation-duration:11s" aria-hidden="true">🍃</span>' +
-        '<span class="leaf" style="right:7%;top:14%;animation-duration:13s" aria-hidden="true">🍃</span>' +
-        '<span class="leaf" style="left:11%;bottom:9%;animation-duration:9s" aria-hidden="true">🍂</span>' +
+        '<span class="leaf" style="right:7%;top:14%;animation-duration:13s;animation-delay:-4s" aria-hidden="true">🍃</span>' +
+        '<span class="leaf" style="left:11%;bottom:9%;animation-duration:9s;animation-delay:-2s" aria-hidden="true">🍂</span>' +
+        '<span class="leaf" style="right:16%;bottom:16%;animation-duration:12s;animation-delay:-7s" aria-hidden="true">🍃</span>' +
+        '<span class="leaf" style="left:44%;top:5%;animation-duration:10s;animation-delay:-5s" aria-hidden="true">🍂</span>' +
         '<div class="tree-canvas" id="treeCanvas" style="width:' + L.width + "px;height:" + L.height + 'px">' +
           svg + nodes +
         "</div>" +
       "</div>";
-    applyTransform();
+    lastLayout = L;
+    if (state.needsFit) {
+      state.needsFit = false;
+      fitTree();
+    } else {
+      applyTransform();
+    }
     attachPanZoom();
   }
 
@@ -344,37 +378,271 @@
     var vp = document.getElementById("treeViewport");
     if (!vp) return;
     var drag = null, moved = false;
+    var pointers = {};  // pointerId -> {x, y} (client coords)
+    var pinch = null;   // {d, k, tx, ty, mx, my} snapshot at pinch start
+
+    function pointerList() {
+      return Object.keys(pointers).map(function (k) { return pointers[k]; });
+    }
+    function vpPoint(clientX, clientY) {
+      var r = vp.getBoundingClientRect();
+      return { x: clientX - r.left, y: clientY - r.top };
+    }
+    function swallowNextClick() {
+      vp.addEventListener("click", function swallow(ev) {
+        ev.stopPropagation(); ev.preventDefault();
+        vp.removeEventListener("click", swallow, true);
+      }, true);
+    }
+
     vp.addEventListener("pointerdown", function (e) {
-      drag = { x: e.clientX, y: e.clientY, tx: state.transform.x, ty: state.transform.y };
+      pointers[e.pointerId] = { x: e.clientX, y: e.clientY };
       moved = false;
+      var pts = pointerList();
+      if (pts.length === 2) {
+        var mid = vpPoint((pts[0].x + pts[1].x) / 2, (pts[0].y + pts[1].y) / 2);
+        pinch = {
+          d: Math.max(1, Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y)),
+          k: state.transform.k, tx: state.transform.x, ty: state.transform.y,
+          mx: mid.x, my: mid.y
+        };
+        drag = null;
+      } else if (pts.length === 1) {
+        drag = { x: e.clientX, y: e.clientY, tx: state.transform.x, ty: state.transform.y };
+      }
     });
     vp.addEventListener("pointermove", function (e) {
+      if (!pointers[e.pointerId]) return;
+      pointers[e.pointerId] = { x: e.clientX, y: e.clientY };
+      var pts = pointerList();
+      if (pinch && pts.length === 2) {
+        var d = Math.max(1, Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y));
+        var k = Math.min(2.5, Math.max(0.08, pinch.k * d / pinch.d));
+        // Keep the canvas point under the pinch center under the fingers.
+        var cx = (pinch.mx - pinch.tx) / pinch.k;
+        var cy = (pinch.my - pinch.ty) / pinch.k;
+        state.transform.k = k;
+        state.transform.x = pinch.mx - cx * k;
+        state.transform.y = pinch.my - cy * k;
+        moved = true;
+        state.userMoved = true;
+        applyTransform();
+        return;
+      }
       if (!drag) return;
       var dx = e.clientX - drag.x, dy = e.clientY - drag.y;
-      if (Math.abs(dx) + Math.abs(dy) > 6) moved = true;
+      if (Math.abs(dx) + Math.abs(dy) > 6) { moved = true; state.userMoved = true; }
       state.transform.x = drag.tx + dx;
       state.transform.y = drag.ty + dy;
       applyTransform();
     });
-    function endDrag(e) {
-      if (drag && moved) {
-        // Suppress the click that follows a drag.
-        e.stopPropagation();
-        vp.addEventListener("click", function swallow(ev) {
-          ev.stopPropagation(); ev.preventDefault();
-          vp.removeEventListener("click", swallow, true);
-        }, true);
+    function endPointer(e) {
+      var hadGesture = !!drag || !!pinch;
+      delete pointers[e.pointerId];
+      var pts = pointerList();
+      if (pts.length < 2) pinch = null;
+      if (pts.length === 1) {
+        // One finger left after a pinch: continue as a fresh drag.
+        drag = { x: pts[0].x, y: pts[0].y, tx: state.transform.x, ty: state.transform.y };
+      } else if (pts.length === 0) {
+        if (hadGesture && moved) {
+          // Suppress the click that follows a drag or pinch.
+          e.stopPropagation();
+          swallowNextClick();
+        }
+        drag = null;
       }
-      drag = null;
     }
-    vp.addEventListener("pointerup", endDrag);
-    vp.addEventListener("pointercancel", function () { drag = null; });
+    vp.addEventListener("pointerup", endPointer);
+    vp.addEventListener("pointercancel", endPointer);
     vp.addEventListener("wheel", function (e) {
       e.preventDefault();
       var factor = e.deltaY < 0 ? 1.08 : 0.92;
-      state.transform.k = Math.min(2.5, Math.max(0.25, state.transform.k * factor));
+      state.transform.k = Math.min(2.5, Math.max(0.08, state.transform.k * factor));
+      state.userMoved = true;
       applyTransform();
     }, { passive: false });
+  }
+
+  /* ------------------------------------------------------------ */
+  /* Globe view — where the family is on Earth                     */
+  /* ------------------------------------------------------------ */
+  /* Orthographic projection centered between West Africa, Europe and
+     the Americas, so the family's real geography fits on one face. */
+  var GLOBE = { lat0: 22 * Math.PI / 180, lon0: -25 * Math.PI / 180, cx: 320, cy: 246, r: 168 };
+
+  function project(latDeg, lonDeg) {
+    var lat = latDeg * Math.PI / 180, lon = lonDeg * Math.PI / 180;
+    var dLon = lon - GLOBE.lon0;
+    var cosc = Math.sin(GLOBE.lat0) * Math.sin(lat) +
+      Math.cos(GLOBE.lat0) * Math.cos(lat) * Math.cos(dLon);
+    return {
+      x: GLOBE.cx + GLOBE.r * Math.cos(lat) * Math.sin(dLon),
+      y: GLOBE.cy - GLOBE.r * (Math.cos(GLOBE.lat0) * Math.sin(lat) -
+        Math.sin(GLOBE.lat0) * Math.cos(lat) * Math.cos(dLon)),
+      visible: cosc > 0.02,
+      facing: cosc
+    };
+  }
+
+  function graticulePath() {
+    var d = "", lon, lat, p, started;
+    for (lon = -180; lon < 180; lon += 20) {
+      started = false;
+      for (lat = -84; lat <= 84; lat += 4) {
+        p = project(lat, lon);
+        if (p.visible) { d += (started ? "L" : "M") + p.x.toFixed(1) + " " + p.y.toFixed(1); started = true; }
+        else started = false;
+      }
+    }
+    for (lat = -60; lat <= 60; lat += 20) {
+      started = false;
+      for (lon = -180; lon <= 180; lon += 4) {
+        p = project(lat, lon);
+        if (p.visible) { d += (started ? "L" : "M") + p.x.toFixed(1) + " " + p.y.toFixed(1); started = true; }
+        else started = false;
+      }
+    }
+    return d;
+  }
+
+  /* Soft continent suggestions — stylized blobs, not an atlas. */
+  var GLOBE_BLOBS = [
+    [7, 18, 64, 46, -16], [49, 16, 42, 20, 0], [38, -98, 54, 30, -8],
+    [-12, -60, 30, 36, 12], [50, 88, 62, 22, 0], [22, 78, 24, 26, 10]
+  ];
+
+  /* Living people grouped by where they are: residence country first,
+     birth country when no residence is recorded yet (otherwise the
+     family's starting tree — no residences recorded — would show an
+     empty planet). People with neither are simply not plotted. */
+  function globeGroups() {
+    var groups = {};
+    state.data.people.forEach(function (p) {
+      if (p.death) return;
+      var code = p.residenceCountry || p.birthCountry;
+      if (!code || !C.coords(code)) return;
+      (groups[code] = groups[code] || []).push(p);
+    });
+    return groups;
+  }
+
+  /* Deterministic star spot in the sky around the globe, from the name —
+     the same person always shines in the same place. */
+  function starSpot(p) {
+    var h = 7, s = p.fullName || "?";
+    for (var i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+    var ang = (h % 360) * Math.PI / 180;
+    var dist = 198 + (h % 92);
+    var x = GLOBE.cx + Math.cos(ang) * dist * 1.06;
+    var y = GLOBE.cy + Math.sin(ang) * dist * 0.80;
+    var dx = x - GLOBE.cx, dy = y - GLOBE.cy;
+    var dCenter = Math.hypot(dx / 1.06, dy / 0.80);
+    if (dCenter < 192) { // push out of the disc if the hash landed inside
+      var push = 196 / Math.max(1, dCenter);
+      x = GLOBE.cx + dx * push; y = GLOBE.cy + dy * push;
+    }
+    x = Math.min(626, Math.max(14, x));
+    y = Math.min(470, Math.max(12, y));
+    return { left: (x / 640 * 100), top: (y / 480 * 100), delay: (h % 30) / 10 };
+  }
+
+  function renderGlobe(main) {
+    var data = state.data;
+    var groups = globeGroups();
+    var codes = Object.keys(groups).sort(function (a, b) {
+      return groups[b].length - groups[a].length || C.name(a, state.lang).localeCompare(C.name(b, state.lang));
+    });
+    var gone = data.people.filter(function (p) { return !!p.death; });
+
+    var blobs = GLOBE_BLOBS.map(function (b) {
+      var c = project(b[0], b[1]);
+      if (!c.visible) return "";
+      return '<ellipse cx="' + c.x.toFixed(1) + '" cy="' + c.y.toFixed(1) + '" rx="' + b[2] +
+        '" ry="' + b[3] + '" transform="rotate(' + b[4] + " " + c.x.toFixed(1) + " " + c.y.toFixed(1) +
+        ')" fill="#7aa844" opacity="0.40"/>';
+    }).join("");
+
+    var dots = codes.map(function (code) {
+      var xy = C.coords(code);
+      var p = project(xy[0], xy[1]);
+      if (!p.visible) return "";
+      var n = groups[code].length;
+      var r = 12 + 4 * Math.sqrt(n);
+      return '<g class="globe-dot" data-globe-country="' + esc(code) + '" role="button" tabindex="0" aria-label="' +
+        esc(C.name(code, state.lang)) + '">' +
+        '<circle class="dot-core" cx="' + p.x.toFixed(1) + '" cy="' + p.y.toFixed(1) + '" r="' + r.toFixed(1) + '"/>' +
+        '<text x="' + p.x.toFixed(1) + '" y="' + (p.y + 6).toFixed(1) + '" font-size="17">' + C.flag(code) + "</text>" +
+        (n > 1 ? '<circle cx="' + (p.x + r - 3).toFixed(1) + '" cy="' + (p.y - r + 3).toFixed(1) + '" r="9.5" fill="#2f6b3a" stroke="#fff" stroke-width="2"/>' +
+          '<text class="dot-count" x="' + (p.x + r - 3).toFixed(1) + '" y="' + (p.y - r + 7).toFixed(1) + '" font-size="11">' + n + "</text>" : "") +
+        "</g>";
+    }).join("");
+
+    var svg =
+      '<svg class="globe-svg" viewBox="0 0 640 480" aria-hidden="true">' +
+      "<defs>" +
+      '<radialGradient id="globeOcean" cx="38%" cy="32%" r="80%">' +
+      '<stop offset="0%" stop-color="#dcead9"/><stop offset="55%" stop-color="#b7d2ae"/>' +
+      '<stop offset="100%" stop-color="#8fb573"/>' +
+      "</radialGradient>" +
+      "</defs>" +
+      '<circle cx="' + GLOBE.cx + '" cy="' + GLOBE.cy + '" r="' + GLOBE.r + '" fill="url(#globeOcean)"/>' +
+      '<g class="globe-spin"><path d="' + graticulePath() + '" fill="none" stroke="#ffffff" stroke-width="1" opacity="0.35"/>' +
+      blobs + "</g>" +
+      '<circle cx="' + GLOBE.cx + '" cy="' + GLOBE.cy + '" r="' + GLOBE.r + '" fill="none" stroke="#7a5c3e" stroke-width="2.5" opacity="0.65"/>' +
+      dots +
+      "</svg>";
+
+    var stars = gone.map(function (p) {
+      var s = starSpot(p);
+      return '<button class="globe-star" data-action="open-person" data-id="' + esc(p.id) +
+        '" style="left:' + s.left.toFixed(1) + "%;top:" + s.top.toFixed(1) +
+        "%;animation-delay:-" + s.delay.toFixed(1) + 's" title="' + esc(p.fullName) +
+        '" aria-label="' + esc(p.fullName) + '">✦</button>';
+    }).join("");
+
+    var html = "<h2>" + esc(t("globeTitle")) + "</h2>" +
+      '<div class="globe-wrap enter">' + svg + stars + "</div>";
+
+    if (codes.length) {
+      html += '<div class="globe-countries">' + codes.map(function (code) {
+        return '<button class="globe-country-btn' + (state.globeCountry === code ? " selected" : "") +
+          '" data-globe-country="' + esc(code) + '">' + C.flag(code) + " " +
+          esc(C.name(code, state.lang)) +
+          ' <span class="globe-country-count">' + groups[code].length + "</span></button>";
+      }).join("") + "</div>";
+    } else {
+      html += '<p class="empty">' + esc(t("globeNoCountry")) + "</p>";
+    }
+
+    if (state.globeCountry && groups[state.globeCountry]) {
+      var sel = state.globeCountry;
+      html += '<div class="globe-people"><h3>' + C.flag(sel) + " " + esc(C.name(sel, state.lang)) + "</h3>" +
+        '<div class="person-list">' +
+        groups[sel].slice().sort(function (a, b) { return a.fullName.localeCompare(b.fullName); })
+          .map(function (p) { return personRow(p); }).join("") +
+        "</div></div>";
+    }
+
+    if (gone.length) {
+      html += '<div class="globe-stars-list"><h3>⭐ ' + esc(t("globeStars")) + '</h3><div class="chips">' +
+        gone.map(function (p) {
+          return '<button class="chip" data-action="open-person" data-id="' + esc(p.id) + '">' +
+            avatarHTML(p, "avatar-chip") +
+            '<span class="chip-text"><span class="chip-name">' + esc(p.fullName) + "</span>" +
+            (p.death && p.death.y ? '<span class="chip-label">† ' + p.death.y + "</span>" : "") +
+            "</span></button>";
+        }).join("") + "</div></div>";
+    }
+
+    main.innerHTML = html;
+    main.querySelectorAll("[data-globe-country]").forEach(function (el) {
+      el.addEventListener("click", function () {
+        var code = el.getAttribute("data-globe-country");
+        state.globeCountry = state.globeCountry === code ? null : code;
+        render();
+      });
+    });
   }
 
   /* ------------------------------------------------------------ */
@@ -824,30 +1092,107 @@
       '<optgroup label="★">' + pinned + "</optgroup>" + rest + "</select>";
   }
 
-  function processPhotoFile(file, cb) {
-    var url = URL.createObjectURL(file);
-    var img = new Image();
-    img.onload = function () {
-      var max = 480;
-      var scale = Math.min(1, max / Math.max(img.width, img.height));
-      var cv = document.createElement("canvas");
-      cv.width = Math.max(1, Math.round(img.width * scale));
-      cv.height = Math.max(1, Math.round(img.height * scale));
-      cv.getContext("2d").drawImage(img, 0, 0, cv.width, cv.height);
-      URL.revokeObjectURL(url);
-      cb(cv.toDataURL("image/jpeg", 0.82));
+  /* Crop math (pure): the square of the original image visible in the
+     crop frame, given the frame size, the displayed image width and the
+     image's offset inside the frame. Exported for the test harness. */
+  function cropSourceRect(imgW, imgH, frame, dispW, offX, offY) {
+    var scale = dispW / imgW;
+    return {
+      x: Math.max(0, -offX / scale),
+      y: Math.max(0, -offY / scale),
+      size: frame / scale
     };
-    img.onerror = function () { URL.revokeObjectURL(url); toast(t("photoTooBig")); };
-    img.src = url;
   }
 
   function pickPhoto(cb) {
     var input = document.getElementById("photoInput");
     input.value = "";
     input.onchange = function () {
-      if (input.files && input.files[0]) processPhotoFile(input.files[0], cb);
+      if (!(input.files && input.files[0])) return;
+      var url = URL.createObjectURL(input.files[0]);
+      var img = new Image();
+      img.onload = function () { openPhotoCrop(url, img, cb); };
+      img.onerror = function () { URL.revokeObjectURL(url); toast(t("photoTooBig")); };
+      img.src = url;
     };
     input.click();
+  }
+
+  /* One screen, two controls: drag the photo inside the square, slide
+     to zoom, "Use this photo" bakes the crop into the stored 480px
+     image. Cancel closes this layer only — the form underneath keeps
+     everything already typed. */
+  function openPhotoCrop(url, img, cb) {
+    var root = document.getElementById("cropRoot");
+    root.innerHTML =
+      '<div class="crop-backdrop"><div class="crop-box" role="dialog" aria-modal="true" aria-label="' +
+      esc(t("cropTitle")) + '">' +
+      "<h3>" + esc(t("cropTitle")) + "</h3>" +
+      '<div class="crop-frame" id="cropFrame"><img id="cropImg" src="' + esc(url) + '" alt="" draggable="false"></div>' +
+      '<p class="form-hint">' + esc(t("cropHint")) + "</p>" +
+      '<input type="range" id="cropZoom" class="crop-slider" min="1" max="3" step="0.01" value="1" aria-label="' +
+      esc(t("zoomIn")) + '">' +
+      '<div class="form-actions">' +
+      '<button type="button" class="btn btn-ghost" id="cropCancel">' + esc(t("cancel")) + "</button>" +
+      '<button type="button" class="btn btn-primary" id="cropUse">' + esc(t("cropUse")) + "</button>" +
+      "</div></div></div>";
+    var frame = document.getElementById("cropFrame");
+    var imgEl = document.getElementById("cropImg");
+    var F = frame.clientWidth || 300;
+    var base = Math.max(F / img.width, F / img.height); // cover the square
+    var zoom = 1, offX = 0, offY = 0;
+    function dispW() { return img.width * base * zoom; }
+    function dispH() { return img.height * base * zoom; }
+    function clamp() {
+      offX = Math.min(0, Math.max(F - dispW(), offX));
+      offY = Math.min(0, Math.max(F - dispH(), offY));
+    }
+    function place() {
+      imgEl.style.width = dispW() + "px";
+      imgEl.style.height = dispH() + "px";
+      imgEl.style.left = offX + "px";
+      imgEl.style.top = offY + "px";
+    }
+    offX = (F - dispW()) / 2;
+    offY = (F - dispH()) / 2;
+    clamp(); place();
+
+    document.getElementById("cropZoom").addEventListener("input", function (e) {
+      var cx = (F / 2 - offX) / (base * zoom); // image point at frame center
+      var cy = (F / 2 - offY) / (base * zoom);
+      zoom = parseFloat(e.target.value) || 1;
+      offX = F / 2 - cx * base * zoom;
+      offY = F / 2 - cy * base * zoom;
+      clamp(); place();
+    });
+    var drag = null;
+    frame.addEventListener("pointerdown", function (e) {
+      drag = { x: e.clientX, y: e.clientY, ox: offX, oy: offY };
+    });
+    frame.addEventListener("pointermove", function (e) {
+      if (!drag) return;
+      offX = drag.ox + (e.clientX - drag.x);
+      offY = drag.oy + (e.clientY - drag.y);
+      clamp(); place();
+    });
+    function endDrag() { drag = null; }
+    frame.addEventListener("pointerup", endDrag);
+    frame.addEventListener("pointercancel", endDrag);
+
+    document.getElementById("cropCancel").addEventListener("click", function () {
+      root.innerHTML = "";
+      URL.revokeObjectURL(url);
+    });
+    document.getElementById("cropUse").addEventListener("click", function () {
+      var rect = cropSourceRect(img.width, img.height, F, dispW(), offX, offY);
+      var cv = document.createElement("canvas");
+      cv.width = 480; cv.height = 480;
+      cv.getContext("2d").drawImage(img, rect.x, rect.y, rect.size, rect.size, 0, 0, 480, 480);
+      var dataUrl = cv.toDataURL("image/jpeg", 0.82);
+      root.innerHTML = "";
+      URL.revokeObjectURL(url);
+      cb(dataUrl);
+    });
   }
 
   function makeRecorder(btn, onDone, idleLabel) {
@@ -883,8 +1228,9 @@
   /* ------------------------------------------------------------ */
   /* Person form (add / edit / create-inside-relation-flow)        */
   /* ------------------------------------------------------------ */
-  function personFormHTML(existing) {
+  function personFormHTML(existing, opts) {
     var p = existing || {};
+    opts = opts || {};
     state.formPhoto = p.photo || null;
     var gender = p.gender === "male" || p.gender === "female" ? p.gender : "unknown";
     // Elders first: the form opens with three things only — name, woman/man,
@@ -897,11 +1243,31 @@
         '" data-gender="' + value + '" aria-pressed="' + (gender === value) + '">' +
         '<span class="gender-icon">' + icon + "</span>" + esc(label) + "</button>";
     }
+    var linkBlock = "";
+    if (!existing && !opts.hideLink) {
+      var linkKindDefs = [["childOf", "🧒", "linkChildOf"], ["parentOf", "🧓", "linkParentOf"],
+        ["spouseOf", "💍", "linkSpouseOf"], ["siblingOf", "👥", "linkSiblingOf"]];
+      linkBlock =
+        '<div class="field field-wide link-block"><span>🔗 ' + esc(t("linkToFamily")) + " — " + esc(t("linkIsA")) + "</span>" +
+        '<div class="link-kinds" id="pf-link-kinds">' +
+        linkKindDefs.map(function (lk) {
+          return '<button type="button" class="link-kind-btn' + (lk[0] === "childOf" ? " selected" : "") +
+            '" data-link-kind="' + lk[0] + '">' + lk[1] + " " + esc(t(lk[2])) + "</button>";
+        }).join("") +
+        "</div>" +
+        '<input type="search" id="pf-link-search" class="search-input" autocomplete="off" placeholder="' +
+          esc(t("searchExisting")) + '">' +
+        '<div id="pf-link-chosen"></div>' +
+        '<div id="pf-link-results" class="person-list compact link-results"></div>' +
+        "</div>";
+    }
     return '<h3>' + (existing ? esc(t("edit")) + " — " + esc(p.fullName) : esc(t("addPerson"))) + "</h3>" +
+      (existing ? "" : '<p class="form-warm">' + esc(t("bestEffort")) + "</p>") +
       '<div id="dupPanel"></div>' +
       '<div class="form-grid">' +
       '<label class="field field-wide"><span>' + esc(t("fullName")) + ' *</span>' +
       '<input type="text" id="pf-name" class="text-input" value="' + esc(p.fullName || "") + '"></label>' +
+      (existing ? "" : '<div class="live-dup field-wide" id="liveDup" style="display:none"></div>') +
       '<div class="field field-wide"><span>' + esc(t("gender")) + '</span>' +
       '<input type="hidden" id="pf-gender" value="' + gender + '">' +
       '<div class="gender-row">' +
@@ -912,6 +1278,7 @@
       '<div class="field field-wide"><span>' + esc(t("photo")) + '</span><div class="photo-row">' +
       '<span id="pf-photo-preview">' + (state.formPhoto ? '<img src="' + esc(state.formPhoto) + '" alt="">' : "") + "</span>" +
       '<button type="button" class="btn" id="pf-photo-btn">' + esc(state.formPhoto ? t("changePhoto") : t("addPhoto")) + "</button></div></div>" +
+      linkBlock +
       "</div>" +
       '<button type="button" class="btn btn-more" id="pf-more-btn" aria-expanded="' + hasDetails + '">' + esc(t("moreDetails")) + "</button>" +
       '<div id="pf-more" style="display:' + (hasDetails ? "block" : "none") + '">' +
@@ -967,7 +1334,8 @@
   function openPersonForm(opts) {
     var existing = opts.existing || null;
     var dupConfirmed = false;
-    openModal(personFormHTML(existing));
+    state.formLink = { kind: "childOf", personId: null };
+    openModal(personFormHTML(existing, opts));
     document.getElementById("pf-photo-btn").addEventListener("click", function () {
       pickPhoto(function (dataUrl) {
         state.formPhoto = dataUrl;
@@ -994,6 +1362,7 @@
         });
       });
     });
+    if (!existing) wireLiveDupAndLink(opts);
     document.getElementById("pf-save").addEventListener("click", function () {
       var values = readPersonForm(existing);
       if (!values.fullName) { toast(t("nameRequired")); return; }
@@ -1038,11 +1407,124 @@
       } else {
         values.createdBy = state.contributor;
         adapter.addPerson(values).then(function (saved) {
+          // "Link to family": the relationship lands with the person,
+          // one step, no return trip through the profile.
+          var rel = linkRelation(state.formLink, saved.id);
+          var done = rel ? adapter.addRelationship(rel).catch(function () { return null; })
+            : Promise.resolve(null);
+          return done.then(function () { return saved; });
+        }).then(function (saved) {
           closeModal(); toast(t("saved"));
           if (opts.onSaved) opts.onSaved(saved); else refresh();
         });
       }
     });
+  }
+
+  /* The create-form extras: live duplicate check while typing, and the
+     "Link to family" picker. Both keep the elder-simple 3-field start —
+     they sit visibly on the form but ask for nothing. */
+  function linkRelation(formLink, newId) {
+    if (!formLink || !formLink.personId) return null;
+    var other = formLink.personId;
+    switch (formLink.kind) {
+      case "childOf": return { a: other, b: newId, type: "parent", createdBy: state.contributor };
+      case "parentOf": return { a: newId, b: other, type: "parent", createdBy: state.contributor };
+      case "spouseOf": return { a: newId, b: other, type: "partner", createdBy: state.contributor };
+      case "siblingOf": return { a: newId, b: other, type: "sibling", createdBy: state.contributor };
+      default: return null;
+    }
+  }
+
+  function wireLiveDupAndLink(opts) {
+    /* --- live duplicate check, right under the name field --- */
+    var nameInput = document.getElementById("pf-name");
+    var liveBox = document.getElementById("liveDup");
+    if (nameInput && liveBox) {
+      nameInput.addEventListener("input", function () {
+        var q = nameInput.value.trim();
+        if (q.length < 3) { liveBox.style.display = "none"; liveBox.innerHTML = ""; return; }
+        var nq = F.normalizeName(q);
+        var hits = state.data.people.filter(function (p) {
+          var np = F.normalizeName(p.fullName + " " + (p.nickname || ""));
+          return np.indexOf(nq) !== -1 || nq.split(" ").some(function (tok) {
+            return tok.length >= 3 && np.split(" ").some(function (pt) { return pt.indexOf(tok) === 0; });
+          });
+        });
+        F.findSimilar(state.data, q, null).forEach(function (s) {
+          if (!hits.some(function (h) { return h.id === s.person.id; })) hits.push(s.person);
+        });
+        hits = hits.slice(0, 4);
+        if (!hits.length) { liveBox.style.display = "none"; liveBox.innerHTML = ""; return; }
+        liveBox.style.display = "block";
+        liveBox.innerHTML = '<div class="live-dup-title">⚠️ ' + esc(t("alreadyInTree")) + "</div>" +
+          hits.map(function (p) {
+            return '<button type="button" class="dup-live-row" data-live-use="' + esc(p.id) + '">' +
+              avatarHTML(p, "avatar-chip") +
+              '<span class="dup-text"><strong>' + esc(p.fullName) + "</strong>" +
+              '<span class="row-context">' + esc(F.personContext(state.data, p, t)) + "</span></span></button>";
+          }).join("");
+        liveBox.querySelectorAll("[data-live-use]").forEach(function (btn) {
+          btn.addEventListener("click", function () {
+            var found = person(btn.getAttribute("data-live-use"));
+            if (!found) return;
+            closeModal();
+            if (opts.onUseExisting) opts.onUseExisting(found);
+            else { state.view = "profile"; state.selectedId = found.id; render(); }
+          });
+        });
+      });
+    }
+
+    /* --- link to family --- */
+    var results = document.getElementById("pf-link-results");
+    if (!results) return; // hidden in the add-family create flow
+    var search = document.getElementById("pf-link-search");
+    var chosenBox = document.getElementById("pf-link-chosen");
+    function drawLinkResults() {
+      var q = F.normalizeName((search.value || "").trim());
+      var list = state.data.people.filter(function (p) {
+        return !q || F.normalizeName(p.fullName + " " + (p.nickname || "")).indexOf(q) !== -1;
+      }).slice().sort(function (a, b) { return a.fullName.localeCompare(b.fullName); }).slice(0, 30);
+      results.innerHTML = list.map(function (p) {
+        return '<button type="button" class="person-row' +
+          (state.formLink.personId === p.id ? " selected" : "") +
+          '" data-link-pick="' + esc(p.id) + '">' + avatarHTML(p, "avatar") +
+          '<span class="row-main"><span class="row-name">' + esc(p.fullName) + "</span>" +
+          '<span class="row-context">' + esc(F.personContext(state.data, p, t)) + "</span></span></button>";
+      }).join("");
+      results.querySelectorAll("[data-link-pick]").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+          state.formLink.personId = btn.getAttribute("data-link-pick");
+          drawChosen();
+          drawLinkResults();
+        });
+      });
+    }
+    function drawChosen() {
+      var p = state.formLink.personId ? person(state.formLink.personId) : null;
+      chosenBox.innerHTML = p
+        ? '<div class="link-chosen">🔗 ' + esc(p.fullName) +
+          '<button type="button" class="btn btn-small btn-ghost" id="pf-link-clear" aria-label="✕">✕</button></div>'
+        : "";
+      var clear = document.getElementById("pf-link-clear");
+      if (clear) clear.addEventListener("click", function () {
+        state.formLink.personId = null;
+        drawChosen();
+        drawLinkResults();
+      });
+    }
+    document.querySelectorAll("[data-link-kind]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        state.formLink.kind = btn.getAttribute("data-link-kind");
+        document.querySelectorAll("[data-link-kind]").forEach(function (b) {
+          b.classList.toggle("selected", b === btn);
+        });
+      });
+    });
+    search.addEventListener("input", drawLinkResults);
+    drawChosen();
+    drawLinkResults();
   }
 
   /* ------------------------------------------------------------ */
@@ -1181,6 +1663,7 @@
     document.getElementById("relCreate").addEventListener("click", function () {
       openPersonForm({
         existing: null,
+        hideLink: true, // the relation is already being made by this flow
         onSaved: function (saved) { finishRelation(anchor.id, kind, saved.id); },
         onUseExisting: function (found) { finishRelation(anchor.id, kind, found.id); }
       });
@@ -1339,7 +1822,8 @@
         break;
       case "nav":
         state.view = target.getAttribute("data-view");
-        state.transform = { k: 1, x: 0, y: 0 };
+        state.needsFit = true;   // entering the tree always starts fitted
+        state.userMoved = false;
         render();
         window.scrollTo(0, 0);
         break;
@@ -1363,9 +1847,9 @@
         render();
         window.scrollTo(0, 0);
         break;
-      case "zoom-in": state.transform.k = Math.min(2.5, state.transform.k * 1.2); applyTransform(); break;
-      case "zoom-out": state.transform.k = Math.max(0.25, state.transform.k / 1.2); applyTransform(); break;
-      case "zoom-reset": state.transform = { k: 1, x: 0, y: 0 }; applyTransform(); break;
+      case "zoom-in": state.transform.k = Math.min(2.5, state.transform.k * 1.2); state.userMoved = true; applyTransform(); break;
+      case "zoom-out": state.transform.k = Math.max(0.08, state.transform.k / 1.2); state.userMoved = true; applyTransform(); break;
+      case "zoom-reset": fitTree(); break;
       case "print": window.print(); break;
       case "export": doExport(); break;
       case "import": document.getElementById("importInput").click(); break;
@@ -1458,6 +1942,16 @@
     if (e.target.files && e.target.files[0]) doImportFile(e.target.files[0]);
     e.target.value = "";
   });
+
+  // Rotating the phone or resizing re-fits the tree — but only until the
+  // visitor takes over with their own pan/zoom.
+  window.addEventListener("resize", function () {
+    if (state.view === "tree" && state.data && !state.userMoved) fitTree();
+  });
+
+  // Pure helpers, exposed for the test harness only.
+  window.FC_FIT = computeFit;
+  window.FC_CROP = { sourceRect: cropSourceRect };
 
   refresh();
 })();

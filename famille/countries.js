@@ -40,11 +40,28 @@
     return CITY_COUNTRY[String(city).trim().toLowerCase()] || null;
   }
 
+  // Approximate country centers [lat, lon] for the Globe view — just the
+  // family's plausible geography (pinned five first), not an atlas.
+  var COORDS = {
+    ML: [17.6, -4.0], SN: [14.4, -14.5], FR: [46.6, 2.5], US: [39.8, -98.6], CA: [57.0, -101.0],
+    GN: [9.9, -11.5], CI: [7.6, -5.6], MR: [19.0, -12.9], BF: [12.3, -1.7], NE: [16.6, 9.5],
+    NG: [9.1, 8.7], CM: [5.7, 12.4], TD: [15.5, 18.7], MA: [31.8, -6.0], DZ: [28.0, 2.6],
+    TN: [33.9, 9.6], GB: [53.5, -2.0], DE: [51.1, 10.4], BE: [50.5, 4.5], ES: [40.2, -3.6],
+    IT: [42.8, 12.8], NL: [52.2, 5.3], CH: [46.8, 8.2], PT: [39.6, -8.0], LU: [49.8, 6.1],
+    AT: [47.6, 14.1], SE: [62.0, 15.0], NO: [64.5, 11.5], IE: [53.2, -8.2]
+  };
+  function coords(code) {
+    if (!code) return null;
+    return COORDS[String(code).toUpperCase()] || null;
+  }
+
   global.FC_COUNTRIES = {
     PINNED: PINNED,
     ALL: ALL,
     flag: flag,
     name: name,
-    countryForCity: countryForCity
+    countryForCity: countryForCity,
+    COORDS: COORDS,
+    coords: coords
   };
 })(typeof window !== "undefined" ? window : globalThis);
