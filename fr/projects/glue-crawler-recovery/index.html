@@ -47,11 +47,11 @@
 <div class="wrap hero">
 <span class="pill"><i></i> Résolution d'incident · Amazon</span>
 <h1>Restaurer une table de températures qui <span>ne se mettait plus à jour</span></h1>
-<p class="lede">Une demande de conformité en sécurité alimentaire, venue de la direction, a révélé qu'une table de températures de production n'avait <strong>plus aucune donnée après septembre 2025</strong> — sept mois de données de capteurs manquantes, sans qu'aucune alerte ne se soit déclenchée en aval. J'ai retracé la cause, restauré les données et livré les chiffres de conformité le soir même.</p>
+<p class="lede">Une demande de conformité en sécurité alimentaire, venue de la direction, a révélé qu'une table de températures de production n'avait <strong>plus aucune donnée depuis sept mois</strong> — sept mois de données de capteurs manquantes, sans qu'aucune alerte ne se soit déclenchée en aval. J'ai retracé la cause, restauré les données et livré les chiffres de conformité le soir même.</p>
 <div class="cta"><a class="btn btn-p" href="/fr/#projects">Le voir dans le portfolio</a><a class="btn btn-g" href="/fr/about">À propos de Bengaly Cisse</a></div>
 <div class="tags"><span class="tag">AWS Glue</span><span class="tag">Redshift</span><span class="tag">Résolution d'incident</span><span class="tag">Conformité alimentaire</span></div>
 <div class="stats c3">
-<div class="stat"><div class="num">1.6<em>B+</em></div><div class="lbl">de lignes restaurées — pour le seul mois de décembre 2025</div></div>
+<div class="stat"><div class="num">1.6<em>B+</em></div><div class="lbl">de lignes restaurées — pour le dernier mois complet</div></div>
 <div class="stat"><div class="num">~71</div><div class="lbl">sites dont les données de conformité ont été livrées à la direction le soir même</div></div>
 <div class="stat"><div class="num">7</div><div class="lbl">mois pendant lesquels la panne est passée inaperçue</div></div>
 </div></div>
@@ -59,20 +59,20 @@
 <section class="block"><div class="wrap">
 <div class="sec-head"><span class="kicker">Le déroulé</span><h2>Demande, cause, correction, prévention</h2></div>
 <div class="steps">
-<div class="step reveal"><span class="kicker">La demande</span><h3>Sept mois de données manquantes</h3><p>La direction a demandé des chiffres de conformité en sécurité alimentaire. La table de températures de production n'avait plus de données après septembre 2025 — sept mois de données de capteurs manquaient.</p></div>
+<div class="step reveal"><span class="kicker">La demande</span><h3>Sept mois de données manquantes</h3><p>La direction a demandé des chiffres de conformité en sécurité alimentaire. La table de températures de production avait cessé de se mettre à jour sept mois plus tôt — sept mois de données de capteurs manquaient.</p></div>
 <div class="step reveal"><span class="kicker">La cause</span><h3>Un crawler arrêté</h3><p>J'ai retracé le pipeline de bout en bout et découvert qu'un crawler AWS Glue avait cessé de fonctionner. Rien, en aval, n'avait déclenché d'alerte.</p></div>
-<div class="step reveal"><span class="kicker">La correction</span><h3>Crawler relancé le soir même</h3><p>J'ai relancé le crawler le soir même, restaurant plus de 1.6B de lignes pour le seul mois de décembre 2025. Les chiffres de conformité d'environ 71 sites ont été transmis à la direction le même soir.</p></div>
+<div class="step reveal"><span class="kicker">La correction</span><h3>Crawler relancé le soir même</h3><p>J'ai relancé le crawler le soir même, restaurant plus de 1.6B de lignes pour le seul dernier mois complet. Les chiffres de conformité d'environ 71 sites ont été transmis à la direction le même soir.</p></div>
 <div class="step reveal"><span class="kicker">La prévention</span><h3>Une planification quotidienne</h3><p>Le crawler tourne désormais chaque jour : un arrêt se verrait en un jour, au lieu de passer inaperçu pendant des mois.</p></div>
 </div>
 </div></section>
 
 <section class="block"><div class="wrap">
-<div class="sec-head"><span class="kicker">Le trou, sept. 2025 – avr. 2026</span><h2>Données de température présentes, par mois</h2>
-<p>La ligne plate, c'est la panne silencieuse ; avril, c'est le pipeline restauré, en fonctionnement quotidien. Hauteurs schématiques ; le trou et la restauration sont exacts.</p></div>
+<div class="sec-head"><span class="kicker">Le trou — sept mois de données manquantes</span><h2>Données de température présentes, par mois</h2>
+<p>La ligne plate, c'est la panne silencieuse ; le dernier mois, c'est le pipeline restauré, en fonctionnement quotidien. Hauteurs schématiques ; le trou et la restauration sont exacts.</p></div>
 <div class="chart-card"><div class="bars">
 <div class="bar" style="height:78%"></div><div class="bar" style="height:84%"></div><div class="bar" style="height:88%"></div><div class="bar zero"></div><div class="bar zero"></div><div class="bar zero"></div><div class="bar zero"></div><div class="bar zero"></div><div class="bar zero"></div><div class="bar zero"></div><div class="bar hot" style="height:96%"></div>
 </div><div class="barlabels"><span>JUIN</span><span>JUIL</span><span>AOÛT</span><span>SEPT</span><span>OCT</span><span>NOV</span><span>DÉC</span><span>JANV</span><span>FÉVR</span><span>MARS</span><span>AVR</span></div>
-<figcaption>Aucune donnée — crawler arrêté, aucune alerte. Décembre seul : 1.6B de lignes restaurées.</figcaption></div>
+<figcaption>Aucune donnée — crawler arrêté, aucune alerte. Dernier mois complet : 1.6B de lignes restaurées.</figcaption></div>
 </div></section>
 </main><section class="block"><div class="wrap">
 <div class="sec-head"><span class="kicker">Autres projets</span><h2>Autres projets</h2></div>
