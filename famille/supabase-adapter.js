@@ -2,10 +2,11 @@
  * LocalAdapter (see data.js), backed by Supabase (Postgres + Storage)
  * through its REST API. No library needed — plain fetch.
  *
- * Status: implemented against the schema in supabase/schema.sql, but NOT
- * exercised end-to-end (that needs Bengaly's Supabase account, created at
- * go-live). Treat the first go-live session as a smoke test: load, add a
- * person, add a photo, record a voice note, export.
+ * Status: LIVE since 2026-11-14 against the schema in
+ * supabase/schema.sql plus its migrations (see the migration log in
+ * HANDOVER.md, B5). New columns/tables always land behind the same
+ * defensive pattern as partner status: the app must work BEFORE the
+ * migration runs, and degrade — never crash — if it hasn't.
  *
  * Mapping notes:
  *  - Partial dates ({y} or {y,m,d}) are stored as jsonb — identical shape
@@ -17,6 +18,14 @@
  *  - Personality traits live in the person_traits table (one row per
  *    pick: person_id, trait_key, contributor_name) — created by
  *    supabase/traits-migration.sql, run after schema.sql.
+ *  - Contact (phone/email) and structured places (birth_city,
+ *    birth_quartier, residence_city, residence_quartier) are columns
+ *    on people, and life events + the notifications switch live in
+ *    life_events / app_settings — all from
+ *    supabase/contact-events-migration.sql. Until it runs, person
+ *    saves retry without the new columns (a save must never fail
+ *    because a column is missing), reads map them as empty, event
+ *    recording quietly no-ops, and notifications read as OFF.
  */
 (function (global) {
   "use strict";
@@ -80,7 +89,13 @@
       birth: r.birth_date || null,
       birthPlace: r.birth_place || "",
       birthCountry: r.birth_country || null,
+      birthCity: r.birth_city || "",
+      birthQuartier: r.birth_quartier || "",
       residenceCountry: r.residence_country || null,
+      residenceCity: r.residence_city || "",
+      residenceQuartier: r.residence_quartier || "",
+      phone: r.phone || "",
+      email: r.email || "",
       death: r.death_date || null,
       deathPlace: r.death_place || "",
       deathCountry: r.death_country || null,
@@ -106,7 +121,13 @@
     if ("birth" in p) row.birth_date = p.birth || null;
     if ("birthPlace" in p) row.birth_place = p.birthPlace || null;
     if ("birthCountry" in p) row.birth_country = p.birthCountry || null;
+    if ("birthCity" in p) row.birth_city = p.birthCity || null;
+    if ("birthQuartier" in p) row.birth_quartier = p.birthQuartier || null;
     if ("residenceCountry" in p) row.residence_country = p.residenceCountry || null;
+    if ("residenceCity" in p) row.residence_city = p.residenceCity || null;
+    if ("residenceQuartier" in p) row.residence_quartier = p.residenceQuartier || null;
+    if ("phone" in p) row.phone = p.phone || null;
+    if ("email" in p) row.email = p.email || null;
     if ("death" in p) row.death_date = p.death || null;
     if ("deathPlace" in p) row.death_place = p.deathPlace || null;
     if ("deathCountry" in p) row.death_country = p.deathCountry || null;
@@ -138,14 +159,51 @@
     };
   }
 
+  function rowToEvent(r) {
+    return {
+      id: r.id, type: r.event_type, personId: r.person_id || null,
+      relatedPersonId: r.related_person_id || null,
+      relationshipId: r.relationship_id || null,
+      detail: r.detail || null,
+      createdBy: r.created_by || "", createdAt: r.created_at
+    };
+  }
+
+  /* Columns added by supabase/contact-events-migration.sql. Until it
+     runs they don't exist: reads simply don't have them (rowToPerson
+     maps them as empty), and person writes RETRY WITHOUT them so a
+     save can never fail because a column is missing — the same
+     defensive pattern as the partner-status column. */
+  var PERSON_OPTIONAL_COLS = ["phone", "email", "birth_city", "birth_quartier",
+    "residence_city", "residence_quartier"];
+
+  function stripOptionalCols(row) {
+    var bare = Object.assign({}, row);
+    PERSON_OPTIONAL_COLS.forEach(function (c) { delete bare[c]; });
+    return bare;
+  }
+
+  function hasOptionalCols(row) {
+    return PERSON_OPTIONAL_COLS.some(function (c) { return c in row; });
+  }
+
   SupabaseAdapter.prototype.loadTree = function () {
     var self = this;
+    /* Events + settings come from tables that may not exist yet
+       (migration pending): a failed fetch degrades to "no events,
+       notifications OFF" — it must never take the tree down with it. */
+    var eventsReady = self._rest("life_events?select=*&order=created_at.asc")
+      .catch(function () { return null; });
+    var settingsReady = self._rest("app_settings?select=*")
+      .catch(function () { return null; });
     return Promise.all([
       self._rest("people?select=*&order=created_at.asc"),
       self._rest("relationships?select=*&order=created_at.asc"),
       self._rest("suggestions?select=*&order=created_at.asc"),
       self._rest("media?select=*&order=created_at.asc"),
-      self._rest("person_traits?select=*&order=created_at.asc")
+      self._rest("person_traits?select=*&order=created_at.asc"),
+      eventsReady,
+      settingsReady
     ]).then(function (parts) {
       var voiceByPerson = {};
       (parts[3] || []).forEach(function (m) {
@@ -164,9 +222,56 @@
             proposed: r.proposed || null, status: r.status, createdAt: r.created_at
           };
         }),
-        traits: (parts[4] || []).map(rowToTrait)
+        traits: (parts[4] || []).map(rowToTrait),
+        events: (parts[5] || []).map(rowToEvent),
+        settings: {
+          notificationsEnabled: (parts[6] || []).some(function (r) {
+            return r.key === "notifications_enabled" && r.value === true;
+          })
+        }
       };
     });
+  };
+
+  /* Life events — the notification substrate. Recording is
+     fire-and-forget BY DESIGN: it resolves null on any failure
+     (table missing, offline) and never rejects into a user flow.
+     Nothing is sent anywhere; a later pass delivers from this list. */
+  SupabaseAdapter.prototype.addEvent = function (evt) {
+    var self = this;
+    return self._rest("life_events", {
+      method: "POST",
+      headers: { "Prefer": "return=representation" },
+      body: JSON.stringify({
+        event_type: evt.type,
+        person_id: evt.personId || null,
+        related_person_id: evt.relatedPersonId || null,
+        relationship_id: evt.relationshipId || null,
+        detail: evt.detail || null,
+        created_by: evt.createdBy || null
+      })
+    }).then(function (rows) {
+      return rows && rows[0] ? rowToEvent(rows[0]) : null;
+    }).catch(function () { return null; });
+  };
+
+  /* The notifications switch (app_settings). Defaults OFF; any
+     failure — including the table not existing yet — resolves false
+     and changes nothing. */
+  SupabaseAdapter.prototype.setNotificationsEnabled = function (flag) {
+    var self = this;
+    return self._rest("app_settings?key=eq.notifications_enabled", {
+      method: "PATCH",
+      headers: { "Prefer": "return=representation" },
+      body: JSON.stringify({ value: !!flag, updated_at: new Date().toISOString() })
+    }).then(function (rows) {
+      if (rows && rows.length) return true;
+      return self._rest("app_settings", {
+        method: "POST",
+        headers: { "Prefer": "return=representation" },
+        body: JSON.stringify({ key: "notifications_enabled", value: !!flag })
+      }).then(function () { return true; });
+    }).catch(function () { return false; });
   };
 
   SupabaseAdapter.prototype.addPerson = function (person) {
@@ -176,11 +281,20 @@
       : Promise.resolve(person.photo || null);
     return photoReady.then(function (photoUrl) {
       var row = personToRow(Object.assign({}, person, { photo: photoUrl }));
-      return self._rest("people", {
-        method: "POST",
-        headers: { "Prefer": "return=representation" },
-        body: JSON.stringify(row)
-      }).then(function (rows) {
+      var post = function (body) {
+        return self._rest("people", {
+          method: "POST",
+          headers: { "Prefer": "return=representation" },
+          body: JSON.stringify(body)
+        });
+      };
+      var attempt = post(row);
+      if (hasOptionalCols(row)) {
+        /* Defensive: contact/place columns missing (migration not
+           run yet) must never block adding a person — retry bare. */
+        attempt = attempt.catch(function () { return post(stripOptionalCols(row)); });
+      }
+      return attempt.then(function (rows) {
         var saved = rowToPerson(rows[0], []);
         saved._pendingVoiceNotes = person.voiceNotes || [];
         return self._saveVoiceNotes(saved).then(function () { return saved; });
@@ -220,11 +334,20 @@
       delete full.voiceNotes;
       var row = personToRow(full);
       Object.keys(row).forEach(function (k) { if (row[k] === null && k !== "photo_url") { /* keep nulls to clear fields */ } });
-      return self._rest("people?id=eq." + encodeURIComponent(id), {
-        method: "PATCH",
-        headers: { "Prefer": "return=representation" },
-        body: JSON.stringify(row)
-      }).then(function (rows) {
+      var patch = function (body) {
+        return self._rest("people?id=eq." + encodeURIComponent(id), {
+          method: "PATCH",
+          headers: { "Prefer": "return=representation" },
+          body: JSON.stringify(body)
+        });
+      };
+      var attempt = patch(row);
+      if (hasOptionalCols(row)) {
+        /* Defensive, same as addPerson: a missing contact/place
+           column (migration pending) must never block an edit. */
+        attempt = attempt.catch(function () { return patch(stripOptionalCols(row)); });
+      }
+      return attempt.then(function (rows) {
         var saved = rowToPerson(rows[0], voice || []);
         saved._pendingVoiceNotes = (voice || []).filter(function (n) { return n.audio && n.audio.indexOf("data:") === 0; });
         return self._saveVoiceNotes(saved).then(function () { return saved; });

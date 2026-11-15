@@ -276,6 +276,42 @@ you can also pinch. Tap any person to open their profile.
   type the correction, or record it as a voice note. It appears on the
   profile as pending, with your name, until the entry's creator or the
   keeper accepts or dismisses it.
+- **Follow someone's lines on the tree.** Tap a person's card once:
+  their family lines light up green and everything else fades, so you
+  can trace exactly who they connect to. Tap the same card again to
+  open their profile.
+- **Phone numbers and email.** The add/edit form asks for a phone
+  number or an email — and it *requires* one only for a person whose
+  birth year is known and makes them 20 or older (the family needs a
+  way to reach its adults; children and people without a known birth
+  year are never blocked). On a profile, the number appears with
+  **Call** and **WhatsApp** buttons, and the email with a **Write**
+  button — visible to anyone with the link, which the family ruled is
+  fine. Nobody is ever shown as "missing" a number; if there is none,
+  nothing appears.
+- **Share on WhatsApp.** The tree has a **Share on WhatsApp** button,
+  and every profile has one too: it opens WhatsApp with a ready-made
+  message (in French) carrying the link — for a profile, a link that
+  opens straight at that person. This is how the tree travels through
+  the family's WhatsApp groups. When the link is pasted into a chat it
+  shows a proper preview card with the family's tree picture.
+- **Branches waiting to be connected.** Sometimes a family gets added
+  before anyone knows how they join the main tree. They are NOT left
+  floating and NO line is ever invented for them: they appear as their
+  own little tree in a framed area under the main tree, labeled
+  **"Branches waiting to be connected."** To connect one, open any
+  person in the branch → **Connect this branch** → say how they join
+  (child of, parent of, spouse of, sibling of) and tap the person in
+  the main family. The moment the link is saved, the branch joins the
+  main tree. The app may *suggest* a likely relative (same name or
+  same place) — it only ever suggests; it never draws the line itself.
+- **Family news (births, marriages…) — prepared, not yet sending.**
+  The app quietly keeps a record of life events (someone added, a
+  birth, a marriage, a divorce, a passing) as they happen, and the
+  **People** tab has a **Family notifications** switch, off by default.
+  Today the switch only arms a future step: nothing is sent anywhere
+  yet. When the family later wants announcements in the WhatsApp
+  group, this is the foundation they will be built on.
 - **Keeper mode.** At the bottom of the **People** tab there is a Keeper
   mode toggle. The keeper (in practice, Bengaly, and whoever he trusts)
   can edit or remove anything, accept any suggestion, and fix any link.
@@ -441,7 +477,12 @@ never require a full date); `birth_place` (free text, city/village);
 `memorial_note`; `notes`; `photo_url`; `passing_recorded_at`; `is_self`;
 `created_by` (contributor name string — attribution is by name, honor
 system); `created_at`/`updated_at` (an `updated_at` trigger maintains the
-latter).
+latter). From the contact-events migration (#3, below): `phone`,
+`email` (contact, visible on the profile to anyone with the link — the
+family's ruling), and the structured place fields `birth_city`,
+`birth_quartier`, `residence_city`, `residence_quartier` (the form's
+country → city → neighborhood pickers; `birth_place` free text still
+exists for the village/place name itself).
 
 **relationships** — `id` uuid PK; `person_a`, `person_b` (FK → people,
 `on delete cascade`); `type`, one of:
@@ -487,6 +528,20 @@ per person per contributor, which is what makes picking idempotent.
 `file_url`; `author_name`; `note`; `created_at`. Voice notes on profiles
 in live mode.
 
+**life_events** (contact-events migration) — `id`; `event_type`
+(`addition`/`birth`/`marriage`/`divorce`/`death`, CHECK); `person_id`,
+`related_person_id`, `relationship_id` (FKs, all `on delete set null` —
+the event outlives the person it was about); `detail` (jsonb, reserved);
+`created_by`; `created_at`. The app records an event inside the normal
+flows (adding a person, linking a child or spouse, marking a partner
+former, recording a passing) — fire-and-forget, never blocking the flow.
+This is the substrate for family notifications; **nothing reads it for
+sending yet**.
+
+**app_settings** (contact-events migration) — `key` PK; `value` jsonb;
+`updated_at`. One row today: `notifications_enabled`, seeded `false`.
+The People-tab switch writes it; delivery does not exist yet.
+
 **Storage buckets** — `photos` and `voice`, both public-read.
 
 **Row-level security** — every table and both buckets carry policies
@@ -526,6 +581,7 @@ policy definitions.
 | 0 | `schema.sql` | All tables, buckets, RLS, seed (9 people, 8 links) | 2026-11-14 |
 | 1 | `traits-migration.sql` | `person_traits` table + RLS | 2026-11-14 |
 | 2 | `partner-status-migration.sql` | `relationships.status` + CHECK | 2026-11-14 |
+| 3 | `contact-events-migration.sql` | `people.phone/email/birth_city/birth_quartier/residence_city/residence_quartier`; `life_events` + `app_settings` tables + RLS | **PENDING — written 2026-11-15, awaiting one paste-run in the SQL editor. The app already runs correctly without it (B5 rule 4 pattern); contact fields simply don't persist server-side until it runs.** |
 
 ## B6. The tree layout — algorithm and the bugs that taught it
 
@@ -609,6 +665,44 @@ pinch center, click suppression after a pinch) and wheel zoom.
 staggered by generation). Cosmetic only — note `generations()` still
 assigns an attached co-parent her own longest-path generation for the
 stats bar and bloom delay; her *drawn* row is the correct parent row.
+
+**Fix pass 2026-11-15 (Django's rulings, via two screenshots).** Five
+layout rules landed on top of everything above; they extend, never
+replace, the earlier scar tissue:
+
+- **Current partners sit closest.** Row seating gained a first sort
+  key: a *former* partner (status `'former'`) always seats after
+  *current* partners. *Bug (screenshot): the row read
+  [Salimata][Django][Adiaratou][Sadio] — the former wife held the seat
+  beside Django while a current wife sat at the end, and Bintou's drop
+  could be misread against the wrong mother.* Now the row reads
+  [Sadio][Django][Salimata][Adiaratou]: both current wives adjacent,
+  the former wife at the end, and Bintou anchors at Django+Sadio's
+  midpoint (x=232 in the acceptance render).
+- **Lines land ON cards.** Every branch and couple bar now terminates
+  exactly on a card edge with a visible **anchor dot** at both ends,
+  and couple bars run edge-to-edge across the gap between two cards —
+  never across a card or through an avatar. *Bug (screenshot): a
+  couple bar crossed Adiaratou's initials circle; Fatoumata + Bouba's
+  child lines hung from a floating point.*
+- **Unavoidable crossings hop.** When a branch's curve genuinely
+  crosses a foreign card (a third co-parent's honest midpoint can sit
+  under a taller neighbour's card), the line is not rerouted and never
+  silently passes: the renderer samples the curve, cuts a gap where it
+  crosses the card's edge (top on entry, bottom on exit) and draws a
+  small bridge arc — the hop says "passing over, not joining." Bengaly's
+  own line is the live example: it hops Salimata's bottom edge.
+- **Trunk weight.** Parent→child branches render at stroke-width 4.5
+  (class `trunk`) against 3 for couple bars — descent is the spine.
+- **Unconnected components.** The layout splits the tree into
+  connected components (`F.components`). The largest renders as the
+  main tree; every other component renders as its own mini-tree in a
+  dashed, labeled zone below it ("Branches waiting to be connected").
+  The universal connector pass still never invents a line: branches
+  join only through a stored relationship (profile → Connect this
+  branch). Tap-to-highlight (`state.highlightId`) also landed here:
+  first tap on a card lights that person's edges (class `branch-hl`)
+  and dims the rest (`hl-dim`); second tap opens the profile.
 
 ## B7. Generations and the cycle hardening
 

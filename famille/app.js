@@ -29,7 +29,9 @@
     formLink: null,         // pending "link to family" choice in the create form
     globeCountry: null,     // country selected in the Globe view
     showAllTraitsFor: null, // profile id whose trait list is fully expanded
-    filter: null            // one active view filter (session-only UI state)
+    filter: null,           // one active view filter (session-only UI state)
+    highlightId: null,      // tree: person whose links are lit up (§7)
+    hashDone: false         // the #p=<id> deep link is consumed once
   };
 
   function t(key) {
@@ -82,6 +84,19 @@
     return out;
   }
 
+  /* One display line for a place: the free text as recorded, plus the
+     structured city / quartier when they add something new — an old
+     free-text "Bamako" and a picked city "Bamako" must not double up. */
+  function placeLine(freeText, city, quartier) {
+    var bits = [];
+    if (freeText) bits.push(freeText);
+    var low = (freeText || "").toLowerCase();
+    if (city && low.indexOf(city.toLowerCase()) < 0) bits.push(city);
+    if (quartier && low.indexOf(quartier.toLowerCase()) < 0 &&
+        bits.join(" ").toLowerCase().indexOf(quartier.toLowerCase()) < 0) bits.push(quartier);
+    return bits.join(", ");
+  }
+
   function avatarHTML(p, cls) {
     if (p.photo) {
       return '<span class="avatar ' + cls + '"><img src="' + esc(p.photo) + '" alt=""></span>';
@@ -108,8 +123,45 @@
   function refresh() {
     return adapter.loadTree().then(function (data) {
       state.data = data;
+      /* Deep link from a WhatsApp share (#p=<person id>): open that
+         profile once, on the first load that knows the person. */
+      if (!state.hashDone) {
+        state.hashDone = true;
+        var m = /#p=([\w-]+)/.exec(window.location.hash || "");
+        if (m && person(m[1])) {
+          state.view = "profile";
+          state.selectedId = m[1];
+        }
+      }
       render();
     });
+  }
+
+  /* Life events — the notification substrate (spec §10). Recording
+     rides along with the normal flows and NEVER blocks or fails
+     them: fire-and-forget, errors swallowed by design. Nothing is
+     sent anywhere; settings.notificationsEnabled only arms a future
+     delivery pass. */
+  function recordEvent(type, personId, relatedPersonId, relationshipId) {
+    try {
+      var p = adapter.addEvent({
+        type: type,
+        personId: personId || null,
+        relatedPersonId: relatedPersonId || null,
+        relationshipId: relationshipId || null,
+        createdBy: state.contributor
+      });
+      if (p && typeof p.catch === "function") p.catch(function () {});
+    } catch (e) { /* the substrate must never break a family flow */ }
+  }
+
+  /* The person's component: the main family is the largest connected
+     group; everyone else belongs to a branch waiting to be connected. */
+  function mainIdSet() {
+    var comps = F.components(state.data);
+    var set = {};
+    if (comps.length) comps[0].forEach(function (id) { set[id] = true; });
+    return set;
   }
 
   function render() {
@@ -333,6 +385,14 @@
       rowMates.forEach(function (m) {
         m.shared = false;
         m.sharedBirth = null;
+        /* Spouse order by reality (Django's ruling, 2026-11-15): a
+           CURRENT partner outranks a former (divorced) one for the
+           seats beside the head — Sadio, still married to Django,
+           sits next to him; Adiaratou, divorced, does not hold the
+           closer seat. Attached co-parents carry no partner link, so
+           they are never "former" here. */
+        var mrel = m.partner ? partnerRelBetween(data, headId, m.id) : null;
+        m.former = !!(mrel && mrel.status === "former");
         F.childrenOf(data, m.id).forEach(function (cid) {
           if (childIds.indexOf(cid) < 0) return;
           m.shared = true;
@@ -341,6 +401,7 @@
         });
       });
       rowMates.sort(function (m1, m2) {
+        if (m1.former !== m2.former) return m1.former ? 1 : -1;
         if (m1.shared !== m2.shared) return m1.shared ? -1 : 1;
         var b1 = m1.sharedBirth === null ? Infinity : m1.sharedBirth;
         var b2 = m2.sharedBirth === null ? Infinity : m2.sharedBirth;
@@ -358,12 +419,24 @@
       return unit;
     }
 
+    /* Unconnected branches (§9): the MAIN tree is the largest
+       connected family. Every other connected group becomes its own
+       tidy mini-tree in the labeled zone below — same canvas, no
+       invented line to the main tree, ever. When a real relationship
+       later joins a branch to the main family, the components merge
+       and the branch simply takes its place in the main layout. */
+    var comps = F.components(data);
+    var mainSet = {};
+    if (comps.length) comps[0].forEach(function (id) { mainSet[id] = true; });
+
     var candidates = data.people
-      .filter(function (p) { return F.parentsOf(data, p.id).length === 0; })
+      .filter(function (p) { return mainSet[p.id] && F.parentsOf(data, p.id).length === 0; })
       .sort(function (a, b) { return descendantCount(data, b.id) - descendantCount(data, a.id); });
     var roots = [];
     candidates.forEach(function (p) { if (!placed[p.id]) roots.push(makeUnit(p.id)); });
-    data.people.forEach(function (p) { if (!placed[p.id]) roots.push(makeUnit(p.id)); });
+    data.people.forEach(function (p) { if (mainSet[p.id] && !placed[p.id]) roots.push(makeUnit(p.id)); });
+    var branchRoots = [];
+    data.people.forEach(function (p) { if (!mainSet[p.id] && !placed[p.id]) branchRoots.push(makeUnit(p.id)); });
 
     var positions = {}; // id -> {cx, top, w, h, head:boolean}
     var maxGen = 0;
@@ -385,10 +458,14 @@
       }
     })();
 
+    /* Branch mini-trees are placed with a vertical offset so their
+       generation rows stack BELOW the main tree, inside the zone. */
+    var placeYOffset = 0;
+
     function place(unit, left) {
       unit.cx = left + unit.width / 2;
       var gen = gens[unit.head] || 0;
-      var top = rowTop[gen];
+      var top = rowTop[gen] + placeYOffset;
       var rowLeft = unit.cx - unit.rowWidth / 2;
       /* Deal the row-mates alternately right and left of the head
          (adjacency order computed in makeUnit): the first co-parent
@@ -407,9 +484,14 @@
         if (m.partner) {
           var prel = partnerRelBetween(data, unit.head, m.id);
           var hp = positions[unit.head];
+          /* The bar runs in the GAP between the two cards and lands
+             exactly ON their facing edges (anchor dots are drawn at
+             both ends) — never across a card or over an avatar, the
+             screenshot-1 bug where the line crossed Adiaratou's
+             initials circle. */
           var x1, x2;
-          if (pos.cx > hp.cx) { x1 = hp.cx + CARD_W / 2 - 6; x2 = pos.cx - PARTNER_W / 2 + 2; }
-          else { x1 = pos.cx + PARTNER_W / 2 - 2; x2 = hp.cx - CARD_W / 2 + 6; }
+          if (pos.cx > hp.cx) { x1 = hp.cx + hp.w / 2; x2 = pos.cx - pos.w / 2; }
+          else { x1 = pos.cx + pos.w / 2; x2 = hp.cx - hp.w / 2; }
           links.push({ x1: x1, x2: x2, y: top + 30, former: !!(prel && prel.status === "former"), a: unit.head, b: m.id });
         }
       }
@@ -451,6 +533,34 @@
     var cursor = PAD;
     roots.forEach(function (r) { place(r, cursor); cursor += r.width + H_GAP * 2; });
 
+    /* The branches zone (§9): mini-trees below the main tree, inside
+       one labeled frame. Their generation rows reuse the shared row
+       heights, shifted down by placeYOffset. Placed BEFORE the
+       universal connector pass, so branch parents get their lines
+       from the same guarantee as everyone else. */
+    var zone = null;
+    var totalW = cursor + PAD;
+    var mainBottom = rowTop[maxGen] + rowH[maxGen];
+    var totalH = mainBottom + PAD;
+    if (branchRoots.length) {
+      var zoneTop = mainBottom + 30;
+      placeYOffset = zoneTop + 48 - rowTop[0];
+      var bcursor = PAD;
+      branchRoots.forEach(function (r) { place(r, bcursor); bcursor += r.width + H_GAP * 2; });
+      var branchMaxGen = 0;
+      Object.keys(positions).forEach(function (id) {
+        if (!mainSet[id] && (gens[id] || 0) > branchMaxGen) branchMaxGen = gens[id] || 0;
+      });
+      var branchBottom = placeYOffset + rowTop[branchMaxGen] + rowH[branchMaxGen];
+      zone = {
+        x: PAD - 16, y: zoneTop,
+        w: Math.max(bcursor + PAD, cursor) - (PAD - 16) + 16,
+        h: branchBottom - zoneTop + 20
+      };
+      totalW = Math.max(totalW, bcursor + PAD);
+      totalH = branchBottom + PAD;
+    }
+
     /* Universal connector pass: EVERY parent-child relationship in the
        data gets a drawn branch, even when the child was claimed by the
        other parent's unit and the two parents sit in different units
@@ -463,9 +573,11 @@
       edges.push({ x1: pa.cx, y1: pa.top + pa.h, x2: pb.cx, y2: pb.top, fromIds: [r.a], toId: r.b });
       edgePairs[r.a + ">" + r.b] = true;
     });
-    var totalW = cursor + PAD;
-    var totalH = rowTop[maxGen] + rowH[maxGen] + PAD;
-    return { positions: positions, edges: edges, links: links, width: totalW, height: totalH, gens: gens };
+    return {
+      positions: positions, edges: edges, links: links,
+      width: totalW, height: totalH, gens: gens,
+      zone: zone, mainSet: mainSet, components: comps
+    };
   }
 
   /* Fit-on-load: the first thing anyone sees — above all on a phone —
@@ -486,6 +598,73 @@
     state.transform = computeFit(vp.clientWidth, vp.clientHeight, lastLayout.width, lastLayout.height);
     state.userMoved = false;
     applyTransform();
+  }
+
+  /* Point on a branch's cubic at t — the same curve the SVG draws:
+     M (x1,y1) C (x1,midY) (x2,midY) (x2,y2). */
+  function branchPoint(e, t) {
+    var midY = (e.y1 + e.y2) / 2;
+    var u = 1 - t;
+    return {
+      x: u * u * u * e.x1 + 3 * u * u * t * e.x1 + 3 * u * t * t * e.x2 + t * t * t * e.x2,
+      y: u * u * u * e.y1 + 3 * u * u * t * midY + 3 * u * t * t * midY + t * t * t * e.y2
+    };
+  }
+
+  /* §2 hops: where a branch passes THROUGH a card that is neither its
+     parent(s) nor its child, it must never read as belonging to that
+     card. Returns one hop point per crossed card — where the curve
+     crosses the card's top edge (exactly where a child's line would
+     attach). The renderer cuts a gap in the line there and draws a
+     small bridge arc, so the line visibly JUMPS the card instead of
+     joining it. A crossing that cannot be avoided is at least never
+     mistaken for a connection. */
+  function branchHops(e, positions) {
+    var own = {};
+    (e.fromIds || []).forEach(function (id) { own[id] = true; });
+    own[e.toId] = true;
+    var hops = [];
+    Object.keys(positions).forEach(function (id) {
+      if (own[id]) return;
+      var pos = positions[id];
+      var left = pos.cx - pos.w / 2, right = pos.cx + pos.w / 2;
+      var bottom = pos.top + pos.h;
+      var hop = null, prev = null, prevIn = false, everIn = false;
+      for (var i = 0; i <= 40; i++) {
+        var pt = branchPoint(e, i / 40);
+        var nowIn = pt.x > left + 1 && pt.x < right - 1 &&
+          pt.y > pos.top + 1 && pt.y < bottom - 1;
+        if (nowIn) everIn = true;
+        if (!hop && prev) {
+          if (nowIn && !prevIn) {
+            /* Entry — prefer the crossing of the card's top edge,
+               exactly where a child's line would attach. */
+            if (prev.y <= pos.top && pt.x >= left && pt.x <= right) {
+              var f1 = (pos.top - prev.y) / Math.max(0.0001, pt.y - prev.y);
+              hop = { x: prev.x + (pt.x - prev.x) * f1, y: pos.top };
+            } else {
+              hop = { x: pt.x, y: pt.y };
+            }
+          } else if (!nowIn && prevIn) {
+            /* The line STARTED inside this card (its anchor sits
+               under a taller neighbour's card) and now leaves it:
+               hop where it crosses the card's bottom edge (the
+               crossing is extrapolated to the true edge when the
+               sample step straddles the inset boundary). */
+            if (pt.y > prev.y && prev.y < bottom) {
+              var f2 = Math.min(1.6, (bottom - prev.y) / (pt.y - prev.y));
+              hop = { x: prev.x + (pt.x - prev.x) * f2, y: bottom };
+            } else {
+              hop = { x: prev.x, y: prev.y };
+            }
+          }
+        }
+        prevIn = nowIn;
+        prev = pt;
+      }
+      if (hop && everIn) hops.push(hop);
+    });
+    return hops;
   }
 
   /* ------------------------------------------------------------ */
@@ -695,24 +874,62 @@
     var L = layoutTree(data);
     var map = F.byId(data);
     var fset = filterMatchSet();
-    var svg = '<svg class="tree-lines" width="' + L.width + '" height="' + L.height + '" aria-hidden="true">';
+    var hl = state.highlightId && map[state.highlightId] ? state.highlightId : null;
+    var defs = "", body = "";
     L.links.forEach(function (l) {
       var dim = fset && !(fset[l.a] && fset[l.b]) ? " link-dim" : "";
-      svg += '<line x1="' + l.x1 + '" y1="' + l.y + '" x2="' + l.x2 + '" y2="' + l.y + '" class="couple-line' + (l.former ? " former" : "") + dim + '"/>' +
-        (l.former ? "" : '<text x="' + ((l.x1 + l.x2) / 2) + '" y="' + (l.y + 5) + '" class="couple-heart' + dim + '">♥</text>');
+      var hdim = hl && l.a !== hl && l.b !== hl ? " hl-dim" : "";
+      body += '<line x1="' + l.x1 + '" y1="' + l.y + '" x2="' + l.x2 + '" y2="' + l.y + '" class="couple-line' + (l.former ? " former" : "") + dim + hdim + '"/>' +
+        '<circle cx="' + l.x1 + '" cy="' + l.y + '" r="4" class="anchor-dot' + hdim + '"/>' +
+        '<circle cx="' + l.x2 + '" cy="' + l.y + '" r="4" class="anchor-dot' + hdim + '"/>' +
+        (l.former ? "" : '<text x="' + ((l.x1 + l.x2) / 2) + '" y="' + (l.y + 5) + '" class="couple-heart' + dim + hdim + '">♥</text>');
     });
-    L.edges.forEach(function (e) {
+    L.edges.forEach(function (e, ei) {
       var midY = (e.y1 + e.y2) / 2;
       var strong = !fset || (fset[e.toId] && (e.fromIds || []).some(function (pid) { return fset[pid]; }));
-      svg += '<path d="M ' + e.x1 + " " + e.y1 + " C " + e.x1 + " " + midY + ", " + e.x2 + " " + midY + ", " + e.x2 + " " + e.y2 + '" class="branch' + (strong ? "" : " link-dim") + '"/>';
+      /* §4: parent→child lines are the TRUNK — heavier than every
+         secondary line, so the generational spine reads first.
+         §7: when a person is highlighted, their lines thicken and
+         light up; everyone else's fade back. */
+      var touches = !hl || e.toId === hl || (e.fromIds || []).indexOf(hl) >= 0;
+      var cls = "branch trunk" + (strong ? "" : " link-dim") + (hl ? (touches ? " branch-hl" : " hl-dim") : "");
+      var d = "M " + e.x1 + " " + e.y1 + " C " + e.x1 + " " + midY + ", " + e.x2 + " " + midY + ", " + e.x2 + " " + e.y2;
+      var hops = branchHops(e, L.positions);
+      var maskAttr = "";
+      if (hops.length) {
+        var maskId = "hop" + ei;
+        defs += '<mask id="' + maskId + '"><rect x="0" y="0" width="' + L.width + '" height="' + L.height + '" fill="#fff"/>' +
+          hops.map(function (hp) {
+            return '<circle cx="' + hp.x.toFixed(1) + '" cy="' + hp.y.toFixed(1) + '" r="8" fill="#000"/>';
+          }).join("") + "</mask>";
+        maskAttr = ' mask="url(#' + maskId + ')"';
+      }
+      body += '<path d="' + d + '" class="' + cls + '"' + maskAttr + "/>";
+      hops.forEach(function (hp) {
+        body += '<path d="M ' + hp.x.toFixed(1) + " " + (hp.y - 8).toFixed(1) +
+          " A 8 8 0 0 1 " + hp.x.toFixed(1) + " " + (hp.y + 8).toFixed(1) +
+          '" class="hop-arc' + (touches ? "" : " hl-dim") + '"/>';
+      });
+      /* §1: anchor dots — every line visibly LANDS on the cards it
+         connects, at the parents' bottom edge and the child's top. */
+      body += '<circle cx="' + e.x1 + '" cy="' + e.y1 + '" r="4.5" class="anchor-dot' + (touches ? "" : " hl-dim") + '"/>' +
+        '<circle cx="' + e.x2 + '" cy="' + e.y2 + '" r="4.5" class="anchor-dot' + (touches ? "" : " hl-dim") + '"/>';
     });
-    svg += "</svg>";
+    var svg = '<svg class="tree-lines" width="' + L.width + '" height="' + L.height + '" aria-hidden="true"><defs>' +
+      defs + "</defs>" + body + "</svg>";
+
+    var zoneHTML = L.zone
+      ? '<div class="branch-zone" style="left:' + L.zone.x + "px;top:" + L.zone.y + "px;width:" +
+        L.zone.w + "px;height:" + L.zone.h + 'px"><span class="branch-zone-label">🌿 ' +
+        esc(t("branchesTitle")) + "</span></div>"
+      : "";
 
     var nodes = Object.keys(L.positions).map(function (id) {
       var p = map[id], pos = L.positions[id];
       var deceased = p.death ? " deceased" : "";
       var dim = fset && !fset[id] ? " node-dim" : "";
-      return '<button class="tree-node' + deceased + dim + '" data-action="open-person" data-id="' + esc(id) + '"' +
+      var hlCls = hl === id ? " node-hl" : "";
+      return '<button class="tree-node' + deceased + dim + hlCls + '" data-action="tree-person" data-id="' + esc(id) + '"' +
         ' style="left:' + (pos.cx - pos.w / 2) + "px;top:" + pos.top + "px;width:" + pos.w +
         "px;height:" + pos.h + "px;animation-delay:" + Math.min(1.1, (L.gens[id] || 0) * 0.16) + 's">' +
         avatarHTML(p, "avatar-node") +
@@ -757,6 +974,7 @@
           '<button class="btn zoom-btn" data-action="zoom-reset">⌂ <span>' + esc(t("fitTree")) + '</span></button>' +
           '<button class="btn zoom-btn" data-action="zoom-in" aria-label="' + esc(t("zoomIn")) + '">＋ <span>' + esc(t("zoomIn")) + '</span></button>' +
           '<button class="btn btn-small" data-action="print">' + esc(t("printTree")) + "</button>" +
+          '<button class="btn btn-small wa-btn" data-action="share-tree">🟢 ' + esc(t("shareWhatsApp")) + "</button>" +
         "</span>" +
       "</div>" +
       '<div class="tree-viewport enter" id="treeViewport">' +
@@ -766,11 +984,12 @@
         '<span class="leaf" style="right:16%;bottom:16%;animation-duration:12s;animation-delay:-7s" aria-hidden="true">🍃</span>' +
         '<span class="leaf" style="left:44%;top:5%;animation-duration:10s;animation-delay:-5s" aria-hidden="true">🍂</span>' +
         '<div class="tree-canvas" id="treeCanvas" style="width:' + L.width + "px;height:" + L.height + 'px">' +
-          /* Nodes first, connector layer AFTER (above) them: a branch
-             must never slide invisibly underneath a card — thin lines
-             over card edges are fine, missing lines are not. The SVG
-             is pointer-events:none, so taps still land on the cards. */
-          nodes + svg +
+          /* Zone frame first (behind everything), then the nodes,
+             then the connector layer ABOVE them: a branch must never
+             slide invisibly underneath a card — thin lines over card
+             edges are fine, missing lines are not. The SVG is
+             pointer-events:none, so taps still land on the cards. */
+          zoneHTML + nodes + svg +
         "</div>" +
       "</div>";
     lastLayout = L;
@@ -1103,6 +1322,16 @@
         '<button class="btn" data-action="export">' + esc(t("exportTree")) + "</button>" +
         '<button class="btn" data-action="import">' + esc(t("importTree")) + "</button>" +
         '<label class="keeper-toggle"><input type="checkbox" data-action-change="keeper" ' + (state.keeper ? "checked" : "") + "> " + esc(t("keeperMode")) + "</label>" +
+      "</div>" +
+      /* Notifications (§10): the switch exists and is stored, and it
+         DEFAULTS OFF. Today it only arms the future delivery pass —
+         the hint says so in plain words. */
+      '<div class="notif-block">' +
+        '<label class="keeper-toggle"><input type="checkbox" data-action-change="notif" ' +
+          (data.settings && data.settings.notificationsEnabled ? "checked" : "") + "> " + esc(t("notifTitle")) +
+          ' <span class="notif-state">' +
+          esc(data.settings && data.settings.notificationsEnabled ? t("notifOn") : t("notifOff")) + "</span></label>" +
+        '<p class="form-hint">' + esc(t("notifHint")) + "</p>" +
       "</div>";
     var input = document.getElementById("peopleSearch");
     input.addEventListener("input", function () {
@@ -1287,9 +1516,11 @@
       (p.nickname ? '<div class="hero-nick">“' + esc(p.nickname) + '”</div>' : "") +
       '<div class="hero-lines">' +
       (p.birth ? "<div>🎂 " + esc(t("born")) + " : " + esc(fmtDate(p.birth)) +
-        (p.birthPlace ? " — " + esc(p.birthPlace) : "") +
+        (placeLine(p.birthPlace, p.birthCity, p.birthQuartier) ? " — " + esc(placeLine(p.birthPlace, p.birthCity, p.birthQuartier)) : "") +
         (p.birthCountry ? " " + C.flag(p.birthCountry) + " " + esc(C.name(p.birthCountry, state.lang)) : "") + "</div>" : "") +
-      (p.residenceCountry ? "<div>🏠 " + esc(t("livesIn")) + " : " + C.flag(p.residenceCountry) + " " + esc(C.name(p.residenceCountry, state.lang)) + "</div>" : "") +
+      (p.residenceCountry || p.residenceCity ? "<div>🏠 " + esc(t("livesIn")) + " : " +
+        (placeLine("", p.residenceCity, p.residenceQuartier) ? esc(placeLine("", p.residenceCity, p.residenceQuartier)) + " " : "") +
+        (p.residenceCountry ? C.flag(p.residenceCountry) + " " + esc(C.name(p.residenceCountry, state.lang)) : "") + "</div>" : "") +
       (p.death ? '<div class="hero-death">🕊 ' + esc(t("died")) + " : " + esc(fmtDate(p.death)) +
         (p.deathPlace ? " — " + esc(p.deathPlace) : "") +
         (p.deathCountry ? " " + C.flag(p.deathCountry) : "") + "</div>" : "") +
@@ -1301,6 +1532,7 @@
 
     html += '<div class="profile-actions">' +
       '<button class="btn btn-primary" data-action="add-relation" data-id="' + esc(p.id) + '">' + esc(t("addFamily")) + "</button>" +
+      '<button class="btn wa-btn" data-action="share-person" data-id="' + esc(p.id) + '">🟢 ' + esc(t("shareWhatsApp")) + "</button>" +
       '<button class="btn" data-action="fix-links" data-id="' + esc(p.id) + '">' + esc(t("fixLinks")) + "</button>" +
       '<button class="btn" data-action="suggest" data-id="' + esc(p.id) + '">' + esc(t("suggestEdit")) + "</button>" +
       '<button class="btn" data-action="voice-note" data-id="' + esc(p.id) + '">' + esc(t("addVoiceNote")) + "</button>" +
@@ -1310,6 +1542,32 @@
       (canModerate(p) ? '<button class="btn" data-action="edit-person" data-id="' + esc(p.id) + '">' + esc(t("edit")) + "</button>" : "") +
       (canModerate(p) ? '<button class="btn btn-danger" data-action="remove-person" data-id="' + esc(p.id) + '">' + esc(t("removePerson")) + "</button>" : "") +
       "</div>";
+
+    /* Unconnected branch (§9): say so plainly, and offer the way in.
+       No line is ever invented — connecting is a stored relationship
+       or it doesn't happen. */
+    if (!mainIdSet()[p.id]) {
+      html += '<div class="branch-banner"><strong>🌿 ' + esc(t("branchesTitle")) + "</strong>" +
+        '<p class="form-hint">' + esc(t("branchesHintPerson")) + "</p>" +
+        '<button class="btn btn-primary" data-action="connect-branch" data-id="' + esc(p.id) + '">' +
+        esc(t("connectBranch")) + "</button></div>";
+    }
+
+    /* Contact — visible to anyone with the link; the family ruled
+       that fine ("it's family"). No "missing" state exists anywhere:
+       no contact recorded simply shows nothing. */
+    if (p.phone || p.email) {
+      html += '<section class="contact-block"><h3>📞 ' + esc(t("contactTitle")) + '</h3><div class="contact-rows">' +
+        (p.phone ? '<div class="contact-row"><span class="contact-value">' + esc(p.phone) + "</span>" +
+          '<a class="btn btn-small" href="tel:' + esc(String(p.phone).replace(/[\s()-]/g, "")) + '">' +
+          esc(t("callNow")) + "</a>" +
+          '<a class="btn btn-small wa-btn" target="_blank" rel="noopener" href="https://wa.me/' +
+          esc(String(p.phone).replace(/\D/g, "")) + '">WhatsApp</a></div>' : "") +
+        (p.email ? '<div class="contact-row"><span class="contact-value">' + esc(p.email) + "</span>" +
+          '<a class="btn btn-small" href="mailto:' + esc(p.email) + '">' +
+          esc(t("writeEmail")) + "</a></div>" : "") +
+        "</div></section>";
+    }
 
     /* Family sections */
     var fam = "";
@@ -1669,6 +1927,126 @@
   /* ------------------------------------------------------------ */
   /* Person form (add / edit / create-inside-relation-flow)        */
   /* ------------------------------------------------------------ */
+  /* Country → city → quartier place group (§6, Mali first). For
+     Mali the city is a picker — Bamako carries its quartiers — and
+     every level keeps a free-text "other", so a missing list entry
+     never blocks anyone. Outside Mali the city is free text, as it
+     always was, and there is no quartier level. */
+  function placeGroupHTML(prefix, placeLabel, vals, withPlace) {
+    vals = vals || {};
+    var cities = C.maliCities();
+    var cityInList = cities.indexOf(vals.city || "") >= 0;
+    var quartiers = C.maliQuartiers(vals.city || "");
+    var quartierInList = quartiers.indexOf(vals.quartier || "") >= 0;
+    return (withPlace
+      ? '<label class="field"><span>' + esc(placeLabel) + '</span>' +
+        '<input type="text" id="' + prefix + '-place" class="text-input" value="' + esc(vals.place || "") + '"></label>'
+      : "") +
+      '<div class="field" id="' + prefix + '-citywrap"><span>' + esc(t("city")) + '</span>' +
+      '<select id="' + prefix + '-city" class="country-select"><option value="">—</option>' +
+      cities.map(function (c) {
+        return '<option value="' + esc(c) + '"' + (vals.city === c ? " selected" : "") + ">" + esc(c) + "</option>";
+      }).join("") +
+      '<option value="__other__"' + (vals.city && !cityInList ? " selected" : "") + ">" + esc(t("otherPlace")) + "</option>" +
+      '</select>' +
+      '<input type="text" id="' + prefix + '-citytext" class="text-input" value="' +
+      esc(vals.city && !cityInList ? vals.city : "") + '" style="display:none"></div>' +
+      '<div class="field" id="' + prefix + '-quartierwrap"><span>' + esc(t("quartier")) + '</span>' +
+      '<select id="' + prefix + '-quartier" class="country-select"><option value="">—</option>' +
+      quartiers.map(function (q) {
+        return '<option value="' + esc(q) + '"' + (vals.quartier === q ? " selected" : "") + ">" + esc(q) + "</option>";
+      }).join("") +
+      '<option value="__other__"' + (vals.quartier && !quartierInList ? " selected" : "") + ">" + esc(t("otherPlace")) + "</option>" +
+      '</select>' +
+      '<input type="text" id="' + prefix + '-quartiertext" class="text-input" value="' +
+      esc(vals.quartier && !quartierInList ? vals.quartier : "") + '" style="display:none"></div>';
+  }
+
+  function wirePlaceGroup(prefix, countryId) {
+    var countryEl = document.getElementById(countryId);
+    var citySel = document.getElementById(prefix + "-city");
+    if (!countryEl || !citySel) return;
+    var cityText = document.getElementById(prefix + "-citytext");
+    var qWrap = document.getElementById(prefix + "-quartierwrap");
+    var qSel = document.getElementById(prefix + "-quartier");
+    var qText = document.getElementById(prefix + "-quartiertext");
+    function quartierMode() {
+      var qs = C.maliQuartiers(citySel.value);
+      if (citySel.value === "__other__" || !qs.length) {
+        qSel.style.display = "none";
+        qText.style.display = "block";
+      } else {
+        qSel.style.display = "block";
+        qText.style.display = qSel.value === "__other__" ? "block" : "none";
+      }
+    }
+    function cityMode() {
+      if (countryEl.value === "ML") {
+        citySel.style.display = "block";
+        cityText.style.display = citySel.value === "__other__" ? "block" : "none";
+        qWrap.style.display = "flex";
+        quartierMode();
+      } else {
+        citySel.style.display = "none";
+        cityText.style.display = "block";
+        qWrap.style.display = "none";
+      }
+    }
+    countryEl.addEventListener("change", cityMode);
+    citySel.addEventListener("change", function () {
+      var qs = C.maliQuartiers(citySel.value);
+      qSel.innerHTML = '<option value="">—</option>' + qs.map(function (q) {
+        return '<option value="' + esc(q) + '">' + esc(q) + "</option>";
+      }).join("") + '<option value="__other__">' + esc(t("otherPlace")) + "</option>";
+      cityMode();
+    });
+    qSel.addEventListener("change", quartierMode);
+    cityMode();
+  }
+
+  function readPlaceGroup(prefix, country) {
+    function val(id) {
+      var el = document.getElementById(id);
+      return el ? el.value.trim() : "";
+    }
+    var placeEl = document.getElementById(prefix + "-place");
+    var place = placeEl ? placeEl.value.trim() : "";
+    var city = "", quartier = "";
+    if (country === "ML") {
+      /* Read whichever control is actually showing: the dropdown,
+         or the free-text box when the dropdown is hidden or set to
+         "other" (e.g. a city with no quartier list uses the box). */
+      var cs = document.getElementById(prefix + "-city");
+      if (cs && cs.style.display !== "none" && cs.value && cs.value !== "__other__") city = cs.value;
+      else city = val(prefix + "-citytext");
+      var qs = document.getElementById(prefix + "-quartier");
+      if (qs && qs.style.display !== "none" && qs.value && qs.value !== "__other__") quartier = qs.value;
+      else quartier = val(prefix + "-quartiertext");
+    } else {
+      city = val(prefix + "-citytext");
+    }
+    return { place: place, city: city, quartier: quartier };
+  }
+
+  /* §5 contact rule: at least one of phone/email is required ONLY
+     when a birth year is known AND makes the person 20 or older.
+     Under 20 or no year = exempt. Nobody already in the tree is ever
+     flagged — this only ever speaks inside the add/edit form. */
+  function contactRequiredNow() {
+    var yEl = document.getElementById("pf-birth-y");
+    var y = yEl && yEl.value ? parseInt(yEl.value, 10) : NaN;
+    if (!y) return false;
+    return (new Date().getFullYear() - y) >= 20;
+  }
+
+  function refreshContactHint() {
+    var req = contactRequiredNow();
+    var hint = document.getElementById("pf-contact-hint");
+    if (hint) hint.style.display = req ? "block" : "none";
+    var star = document.getElementById("pf-contact-star");
+    if (star) star.style.display = req ? "inline" : "none";
+  }
+
   function personFormHTML(existing, opts) {
     var p = existing || {};
     opts = opts || {};
@@ -1678,7 +2056,8 @@
     // photo. Everything else lives behind one "More details" tap. When
     // editing someone who already has details, start open so nothing hides.
     var hasDetails = !!(p.nickname || p.birth || p.birthPlace || p.birthCountry ||
-      p.residenceCountry || p.notes || p.death);
+      p.birthCity || p.birthQuartier || p.residenceCountry || p.residenceCity ||
+      p.residenceQuartier || p.notes || p.death);
     function genderBtn(value, icon, label) {
       return '<button type="button" class="gender-btn' + (gender === value ? " selected" : "") +
         '" data-gender="' + value + '" aria-pressed="' + (gender === value) + '">' +
@@ -1721,6 +2100,17 @@
       '<div class="field field-wide"><span>' + esc(t("photo")) + '</span><div class="photo-row">' +
       '<span id="pf-photo-preview">' + (state.formPhoto ? '<img src="' + esc(state.formPhoto) + '" alt="">' : "") + "</span>" +
       '<button type="button" class="btn" id="pf-photo-btn">' + esc(state.formPhoto ? t("changePhoto") : t("addPhoto")) + "</button></div></div>" +
+      /* Contact sits with the priority fields, always visible (§5):
+         it is required exactly when the birth year makes this person
+         20+ — the star and the hint appear only then. */
+      '<div class="field field-wide"><span>📞 ' + esc(t("contactTitle")) + ' <span id="pf-contact-star" style="display:none">*</span></span>' +
+      '<div class="contact-grid">' +
+      '<label class="field"><span>' + esc(t("phone")) + '</span>' +
+      '<input type="tel" id="pf-phone" class="text-input" autocomplete="tel" value="' + esc(p.phone || "") + '"></label>' +
+      '<label class="field"><span>' + esc(t("email")) + '</span>' +
+      '<input type="email" id="pf-email" class="text-input" autocomplete="email" value="' + esc(p.email || "") + '"></label>' +
+      "</div>" +
+      '<span class="date-hint" id="pf-contact-hint" style="display:none">' + esc(t("contactHint")) + "</span></div>" +
       linkBlock +
       "</div>" +
       '<button type="button" class="btn btn-more" id="pf-more-btn" aria-expanded="' + hasDetails + '">' + esc(t("moreDetails")) + "</button>" +
@@ -1730,12 +2120,12 @@
       '<input type="text" id="pf-nick" class="text-input" value="' + esc(p.nickname || "") + '"></label>' +
       '<div class="field"><span>' + esc(t("birthDate")) + "</span>" + datePickerHTML("pf-birth", p.birth) +
       '<span class="date-hint">' + esc(t("dateHint")) + "</span></div>" +
-      '<label class="field"><span>' + esc(t("birthPlace")) + '</span>' +
-      '<input type="text" id="pf-birthplace" class="text-input" value="' + esc(p.birthPlace || "") + '"></label>' +
       '<label class="field"><span>' + esc(t("birthPlace")) + " — " + (state.lang === "fr" ? "pays" : "country") + "</span>" +
       countrySelectHTML("pf-birthcountry", p.birthCountry) + "</label>" +
+      placeGroupHTML("pf-birth", t("birthPlace"), { place: p.birthPlace, city: p.birthCity, quartier: p.birthQuartier }, true) +
       '<label class="field"><span>' + esc(t("currentCountry")) + "</span>" +
       countrySelectHTML("pf-residence", p.residenceCountry) + "</label>" +
+      placeGroupHTML("pf-res", t("currentCountry"), { place: "", city: p.residenceCity, quartier: p.residenceQuartier }, false) +
       '<label class="field field-wide"><span>' + esc(t("notes")) + '</span>' +
       '<textarea id="pf-notes" class="text-input" rows="2">' + esc(p.notes || "") + "</textarea></label>" +
       '<label class="field field-wide check-field"><input type="checkbox" id="pf-deceased" ' + (p.death ? "checked" : "") + "> " + esc(t("died")) + "</label>" +
@@ -1756,15 +2146,25 @@
 
   function readPersonForm(existing) {
     var deceased = document.getElementById("pf-deceased").checked;
+    var birthCountry = document.getElementById("pf-birthcountry").value || null;
+    var residenceCountry = document.getElementById("pf-residence").value || null;
+    var bp = readPlaceGroup("pf-birth", birthCountry);
+    var rp = readPlaceGroup("pf-res", residenceCountry);
     return {
       fullName: document.getElementById("pf-name").value.trim(),
       nickname: document.getElementById("pf-nick").value.trim(),
       gender: document.getElementById("pf-gender").value,
       photo: state.formPhoto,
+      phone: document.getElementById("pf-phone").value.trim(),
+      email: document.getElementById("pf-email").value.trim(),
       birth: readDatePicker("pf-birth"),
-      birthPlace: document.getElementById("pf-birthplace").value.trim(),
-      birthCountry: document.getElementById("pf-birthcountry").value || null,
-      residenceCountry: document.getElementById("pf-residence").value || null,
+      birthPlace: bp.place,
+      birthCountry: birthCountry,
+      birthCity: bp.city,
+      birthQuartier: bp.quartier,
+      residenceCountry: residenceCountry,
+      residenceCity: rp.city,
+      residenceQuartier: rp.quartier,
       notes: document.getElementById("pf-notes").value.trim(),
       death: deceased ? readDatePicker("pf-death") : null,
       deathPlace: deceased ? document.getElementById("pf-deathplace").value.trim() : "",
@@ -1805,10 +2205,22 @@
         });
       });
     });
+    wirePlaceGroup("pf-birth", "pf-birthcountry");
+    wirePlaceGroup("pf-res", "pf-residence");
+    var birthYearEl = document.getElementById("pf-birth-y");
+    if (birthYearEl) birthYearEl.addEventListener("change", refreshContactHint);
+    refreshContactHint();
     if (!existing) wireLiveDupAndLink(opts);
     document.getElementById("pf-save").addEventListener("click", function () {
       var values = readPersonForm(existing);
       if (!values.fullName) { toast(t("nameRequired")); return; }
+      /* §5: the ONLY hard gate in the form — a known birth year that
+         makes this person 20+ needs one way to reach them. */
+      if (contactRequiredNow() && !values.phone && !values.email) {
+        refreshContactHint();
+        toast(t("contactRequired"));
+        return;
+      }
       if (!existing && !dupConfirmed) {
         var similar = F.findSimilar(state.data, values.fullName, null);
         if (similar.length) {
@@ -1843,12 +2255,15 @@
         }
       }
       if (existing) {
+        var hadDeath = !!existing.death;
         adapter.updatePerson(existing.id, values).then(function (saved) {
+          if (!hadDeath && values.death) recordEvent("death", existing.id);
           closeModal(); toast(t("saved"));
           if (opts.onSaved) opts.onSaved(saved); else refresh();
         });
       } else {
         values.createdBy = state.contributor;
+        var createdRel = null;
         adapter.addPerson(values).then(function (saved) {
           // "Link to family": the relationship lands with the person,
           // one step, no return trip through the profile.
@@ -1857,10 +2272,23 @@
             var formerBox = document.getElementById("pf-link-former");
             if (formerBox && formerBox.checked) rel.status = "former";
           }
+          createdRel = rel;
           var done = rel ? adapter.addRelationship(rel).catch(function () { return null; })
             : Promise.resolve(null);
           return done.then(function () { return saved; });
         }).then(function (saved) {
+          /* Life events (§10 substrate): an addition, a death if the
+             new person is already gone, a birth if they arrived as
+             someone's child, a marriage/divorce if as a spouse. */
+          recordEvent("addition", saved.id);
+          if (values.death) recordEvent("death", saved.id);
+          if (createdRel && createdRel.type === "parent" && createdRel.b === saved.id) {
+            recordEvent("birth", saved.id, createdRel.a);
+          }
+          if (createdRel && createdRel.type === "partner") {
+            recordEvent(createdRel.status === "former" ? "divorce" : "marriage",
+              saved.id, createdRel.a === saved.id ? createdRel.b : createdRel.a);
+          }
           closeModal(); toast(t("saved"));
           if (opts.onSaved) opts.onSaved(saved); else refresh();
         });
@@ -2039,6 +2467,15 @@
     if (kind === "spouse" && former) rel.status = "former";
     rel.createdBy = state.contributor;
     adapter.addRelationship(rel).then(function () {
+      if (kind === "spouse") {
+        recordEvent(former ? "divorce" : "marriage", anchorId, otherId);
+      }
+      if (rel.type === "parent") {
+        /* A parent link is a birth in the family's story (§10):
+           rel.b is the child, rel.a the parent, whichever side of
+           the flow the family started from. */
+        recordEvent("birth", rel.b, rel.a);
+      }
       closeModal();
       toast(t("saved"));
       state.view = "profile";
@@ -2165,6 +2602,7 @@
           }).then(function () { closeModal(); toast(t("saved")); refresh(); });
         } else {
           adapter.updatePerson(p.id, proposed).then(function () {
+            recordEvent("death", p.id);
             closeModal(); toast(t("saved")); refresh();
           });
         }
@@ -2403,6 +2841,120 @@
       '<div class="form-actions"><button class="btn btn-ghost" data-action="fix-links" data-id="' + esc(p.id) + '">' + esc(t("back")) + "</button></div>");
   }
 
+  /* ------------------------------------------------------------ */
+  /* Connect a branch (§9)                                         */
+  /* ------------------------------------------------------------ */
+  /* Candidate hints: main-family people who share a name or a place
+     with someone in this branch. Offered as suggestions to confirm —
+     never drawn as lines, never stored until a human picks the real
+     link in this modal. */
+  function branchCandidates(branchPerson) {
+    var data = state.data;
+    var mainSet = mainIdSet();
+    var branchIds = {};
+    F.components(data).forEach(function (g) {
+      if (g.indexOf(branchPerson.id) >= 0) {
+        g.forEach(function (id) { branchIds[id] = true; });
+      }
+    });
+    var branchPeople = Object.keys(branchIds).map(function (id) { return person(id); }).filter(Boolean);
+    var hints = [];
+    data.people.forEach(function (mp) {
+      if (!mainSet[mp.id]) return;
+      branchPeople.forEach(function (bp) {
+        var sim = F.nameSimilarity(bp.fullName, mp.fullName);
+        var samePlace = !!(bp.birthCountry && mp.birthCountry && bp.birthCountry === mp.birthCountry &&
+          ((bp.birthCity && mp.birthCity && bp.birthCity.toLowerCase() === mp.birthCity.toLowerCase()) ||
+           (bp.birthPlace && mp.birthPlace && bp.birthPlace.toLowerCase() === mp.birthPlace.toLowerCase())));
+        if (sim >= 0.55 || samePlace) hints.push({ branch: bp, main: mp, score: sim });
+      });
+    });
+    hints.sort(function (a, b) { return b.score - a.score; });
+    var seen = {}, out = [];
+    hints.forEach(function (h) {
+      var k = h.branch.id + ">" + h.main.id;
+      if (!seen[k]) { seen[k] = true; out.push(h); }
+    });
+    return out.slice(0, 3);
+  }
+
+  function openBranchConnect(p) {
+    if (!p) return;
+    ensureContributor(function () {
+      var data = state.data;
+      var mainSet = mainIdSet();
+      var hints = branchCandidates(p);
+      var kind = "childOf";
+      var kindDefs = [["childOf", "🧒", "linkChildOf"], ["parentOf", "🧓", "linkParentOf"],
+        ["spouseOf", "💍", "linkSpouseOf"], ["siblingOf", "👥", "linkSiblingOf"]];
+      openModal('<h3>🌿 ' + esc(t("connectBranch")) + " — " + esc(p.fullName) + "</h3>" +
+        '<p class="form-hint">' + esc(t("connectBranchHint")) + "</p>" +
+        (hints.length
+          ? '<h4 class="filter-h">' + esc(t("connectMaybe")) + "</h4>" +
+            '<div class="person-list compact">' + hints.map(function (h) {
+              return '<button type="button" class="person-row" data-branch-pick="' + esc(h.main.id) + '">' +
+                avatarHTML(h.main, "avatar") +
+                '<span class="row-main"><span class="row-name">' + esc(h.main.fullName) + "</span>" +
+                '<span class="row-context">' + esc(t("connectMaybeWhy")) + " — " + esc(h.branch.fullName) + "</span></span></button>";
+            }).join("") + "</div>"
+          : "") +
+        '<div class="link-kinds">' + kindDefs.map(function (lk) {
+          return '<button type="button" class="link-kind-btn' + (lk[0] === "childOf" ? " selected" : "") +
+            '" data-bc-kind="' + lk[0] + '">' + lk[1] + " " + esc(t(lk[2])) + "</button>";
+        }).join("") + "</div>" +
+        '<input type="search" id="bc-search" class="search-input" autocomplete="off" placeholder="' +
+          esc(t("searchExisting")) + '">' +
+        '<div id="bc-results" class="person-list compact link-results"></div>');
+      function drawResults() {
+        var q = F.normalizeName((document.getElementById("bc-search").value || "").trim());
+        var list = data.people.filter(function (mp) {
+          return mainSet[mp.id] &&
+            (!q || F.normalizeName(mp.fullName + " " + (mp.nickname || "")).indexOf(q) !== -1);
+        }).slice().sort(function (a, b) { return a.fullName.localeCompare(b.fullName); }).slice(0, 30);
+        var box = document.getElementById("bc-results");
+        box.innerHTML = list.map(function (mp) { return personRow(mp); }).join("");
+        box.querySelectorAll("[data-id]").forEach(function (row) {
+          row.addEventListener("click", function (e) {
+            e.stopPropagation(); // the global delegation would open the profile instead
+            finishBranchConnect(p, kind, row.getAttribute("data-id"));
+          });
+        });
+      }
+      document.querySelectorAll("[data-bc-kind]").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+          kind = btn.getAttribute("data-bc-kind");
+          document.querySelectorAll("[data-bc-kind]").forEach(function (b) {
+            b.classList.toggle("selected", b === btn);
+          });
+        });
+      });
+      document.querySelectorAll("[data-branch-pick]").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+          var mp = person(btn.getAttribute("data-branch-pick"));
+          var search = document.getElementById("bc-search");
+          if (search && mp) { search.value = mp.fullName; drawResults(); }
+        });
+      });
+      document.getElementById("bc-search").addEventListener("input", drawResults);
+      drawResults();
+    });
+  }
+
+  function finishBranchConnect(branchPerson, kind, mainPersonId) {
+    var rel = linkRelation({ kind: kind, personId: mainPersonId }, branchPerson.id);
+    if (!rel) return;
+    rel.createdBy = state.contributor;
+    adapter.addRelationship(rel).then(function () {
+      if (rel.type === "partner") recordEvent("marriage", branchPerson.id, mainPersonId);
+      closeModal();
+      toast(t("connectDone"));
+      state.view = "tree";
+      state.needsFit = true;
+      state.userMoved = false;
+      refresh();
+    }).catch(function () { toast(t("linkSaveFailed")); });
+  }
+
   /* Remove a person — discoverable and safe: a named, two-step
      confirm that says plainly what goes with them. The people they
      were linked to stay; deletePerson cascades the links (both
@@ -2464,6 +3016,7 @@
         break;
       case "nav":
         state.view = target.getAttribute("data-view");
+        state.highlightId = null;
         state.needsFit = true;   // entering the tree always starts fitted
         state.userMoved = false;
         render();
@@ -2486,9 +3039,39 @@
       case "open-person":
         state.view = "profile";
         state.selectedId = id;
+        state.highlightId = null;
         render();
         window.scrollTo(0, 0);
         break;
+      case "tree-person":
+        /* §7 tap-to-highlight: the first tap lights up this person's
+           links (and fades the rest) so the family can trace them;
+           a second tap on the same person opens their page. */
+        if (state.highlightId === id) {
+          state.highlightId = null;
+          state.view = "profile";
+          state.selectedId = id;
+          render();
+          window.scrollTo(0, 0);
+        } else {
+          state.highlightId = id;
+          render();
+        }
+        break;
+      case "share-tree":
+        window.open("https://wa.me/?text=" + encodeURIComponent(
+          t("shareTreeMsg") + "https://bengalycisse.com/famille/"), "_blank");
+        break;
+      case "share-person": {
+        var shareP = person(id);
+        if (shareP) {
+          window.open("https://wa.me/?text=" + encodeURIComponent(
+            fillTpl(t("shareProfileMsg"), { name: shareP.fullName }) +
+            "https://bengalycisse.com/famille/#p=" + shareP.id), "_blank");
+        }
+        break;
+      }
+      case "connect-branch": openBranchConnect(person(id)); break;
       case "zoom-in": state.transform.k = Math.min(2.5, state.transform.k * 1.2); state.userMoved = true; applyTransform(); break;
       case "zoom-out": state.transform.k = Math.max(0.08, state.transform.k / 1.2); state.userMoved = true; applyTransform(); break;
       case "zoom-reset": fitTree(); break;
@@ -2598,6 +3181,9 @@
           });
         }
         setOp.then(function () {
+          if (targetRel.type === "partner") {
+            recordEvent(newStatus === "former" ? "divorce" : "marriage", pSet.id, otherSet.id);
+          }
           toast(t("linkChanged"));
           return refresh();
         }).then(function () {
@@ -2657,7 +3243,13 @@
         var prelId = target.getAttribute("data-rel");
         var makeFormer = target.getAttribute("data-former") !== "1";
         adapter.updateRelationship(prelId, { status: makeFormer ? "former" : null })
-          .then(function () { toast(t("saved")); refresh(); })
+          .then(function () {
+            var prelNow = (state.data.relationships || []).find(function (r) { return r.id === prelId; });
+            var otherId = prelNow
+              ? (prelNow.a === state.selectedId ? prelNow.b : prelNow.a) : null;
+            recordEvent(makeFormer ? "divorce" : "marriage", state.selectedId, otherId, prelId);
+            toast(t("saved")); refresh();
+          })
           .catch(function () { toast(t("formerSaveFailed")); });
         break;
       }
@@ -2669,7 +3261,10 @@
           : Promise.resolve();
         apply.then(function () {
           return adapter.updateSuggestion(sugg.id, { status: "accepted" });
-        }).then(function () { toast(t("suggestionAccepted")); refresh(); });
+        }).then(function () {
+          if (sugg.kind === "passing") recordEvent("death", sugg.personId);
+          toast(t("suggestionAccepted")); refresh();
+        });
         break;
       }
       case "dismiss-sugg":
@@ -2686,6 +3281,18 @@
       state.keeper = target.checked;
       localStorage.setItem("fc.keeper", state.keeper ? "1" : "0");
       render();
+    }
+    if (target.getAttribute("data-action-change") === "notif") {
+      var wanted = target.checked;
+      adapter.setNotificationsEnabled(wanted).then(function (ok) {
+        if (ok) {
+          if (state.data.settings) state.data.settings.notificationsEnabled = wanted;
+          toast(t("saved"));
+        } else {
+          toast(t("linkSaveFailed"));
+        }
+        render();
+      });
     }
   });
 

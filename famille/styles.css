@@ -123,6 +123,57 @@ h3 { font-size: 1.12rem; margin: 0 0 0.5em; color: var(--leaf-dark); }
    taps landing on the cards underneath. */
 .tree-lines { position: absolute; left: 0; top: 0; z-index: 3; pointer-events: none; }
 .branch { fill: none; stroke: var(--bark); stroke-width: 3; stroke-linecap: round; opacity: 0.85; }
+/* §4 trunk lines: parent→child descent is the spine of the tree and
+   renders heavier than every secondary line (couple bars, filters). */
+.branch.trunk { stroke-width: 4.5; opacity: 0.95; }
+/* §1 anchor dots: every connector visibly LANDS on the card it
+   connects — a dot on the parent's bottom edge, the child's top
+   edge, and both ends of a couple bar. */
+.anchor-dot { fill: var(--bark); stroke: #fff; stroke-width: 1.5; }
+/* §2 hop arc: the little bridge a branch draws when it must cross a
+   card that isn't its own — the line jumps, it never joins. */
+.hop-arc { fill: none; stroke: var(--bark); stroke-width: 3; stroke-linecap: round; opacity: 0.95; }
+/* §7 tap-to-highlight: the tapped person's lines thicken and light
+   up in leaf green; every other line fades back. */
+.branch.branch-hl { stroke: var(--leaf); stroke-width: 6.5; opacity: 1; }
+.tree-lines .hl-dim { opacity: 0.07; }
+.couple-heart.hl-dim { opacity: 0.08; }
+.anchor-dot.hl-dim { opacity: 0.1; }
+.tree-node.node-hl { border-color: var(--gold); box-shadow: 0 0 0 3px var(--gold), var(--shadow); }
+/* §9 the branches zone: unconnected mini-trees live in one labeled
+   frame below the main tree — near the family, honestly apart. */
+.branch-zone {
+  position: absolute; z-index: 0; border: 2px dashed var(--bark);
+  border-radius: 18px; background: rgba(255, 253, 248, 0.45);
+}
+.branch-zone-label {
+  position: absolute; top: 8px; left: 12px; font-weight: 800;
+  color: var(--bark); font-size: 0.95rem;
+}
+.branch-banner {
+  background: #fdf6da; border: 2px solid var(--gold); border-radius: var(--radius);
+  padding: 12px 14px; margin: 14px 0;
+}
+.branch-banner .btn { margin-top: 6px; }
+/* §8 WhatsApp share buttons. */
+.wa-btn { border-color: #25d366; background: #e9f9ef; }
+/* §5 contact: profile block + the form's two-up contact grid. */
+.contact-block { margin-top: 20px; }
+.contact-rows { display: flex; flex-direction: column; gap: 8px; }
+.contact-row {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  background: var(--card); border: 2px solid var(--line); border-radius: 12px; padding: 8px 12px;
+}
+.contact-value { font-weight: 700; overflow-wrap: anywhere; }
+.contact-row .btn { margin-left: auto; }
+.contact-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+@media (max-width: 560px) { .contact-grid { grid-template-columns: 1fr; } }
+/* §10 notifications switch block (People tab footer). */
+.notif-block { margin-top: 16px; border-top: 2px solid var(--line); padding-top: 12px; }
+.notif-state {
+  background: var(--leaf-soft); color: var(--leaf-dark); font-size: 0.8rem;
+  font-weight: 800; padding: 2px 8px; border-radius: 999px; line-height: 1.3;
+}
 .couple-line { stroke: var(--terra); stroke-width: 3; stroke-linecap: round; }
 .couple-line.former { stroke: var(--ink-soft); stroke-width: 3; stroke-dasharray: 6 4; opacity: 0.9; }
 .couple-heart { fill: var(--terra); font-size: 13px; text-anchor: middle; }

@@ -1,7 +1,7 @@
 /* data.js — the data layer for Famille Cisse.
  *
  * Everything in the app talks to a small async adapter interface:
- *   loadTree()                       -> { people, relationships, suggestions, traits }
+ *   loadTree()                       -> { people, relationships, suggestions, traits, events, settings }
  *   addPerson(person)                -> saved person (with id)
  *   updatePerson(id, patch)          -> saved person
  *   deletePerson(id)
@@ -13,6 +13,8 @@
  *   addTrait(trait)                  -> saved trait (one pick of one quality)
  *   removeTrait(id)                  -> removes that one pick
  *   listTraits(personId)             -> [trait] for one person
+ *   addEvent(event)                  -> saved life event (notification substrate)
+ *   setNotificationsEnabled(flag)    -> the app-wide notifications switch
  *   replaceAll(data)                 -> used by JSON import
  *
  * Two implementations exist:
@@ -26,10 +28,21 @@
  * Data model
  *   Person: { id, fullName, nickname, gender: 'female'|'male'|'unknown',
  *             birth: {y, m, d} | {y} | null, birthPlace, birthCountry,
- *             residenceCountry, death: {y, m, d} | {y} | null, deathPlace,
+ *             birthCity, birthQuartier, residenceCountry, residenceCity,
+ *             residenceQuartier, phone, email,
+ *             death: {y, m, d} | {y} | null, deathPlace,
  *             deathCountry, memorialNote, notes, photo (data URL or URL),
  *             voiceNotes: [{id, authorName, audio, createdAt}],
  *             isSelf, createdBy, createdAt }
+ *     phone / email: contact info, shown on the profile to anyone with
+ *     the link (the family's ruling — it's family). The add/edit form
+ *     requires at least one of them ONLY when a birth year is known
+ *     and makes the person 20+; under 20 or no year = exempt, and
+ *     nobody already in the tree is ever flagged for a missing one.
+ *     birthCity / birthQuartier / residenceCity / residenceQuartier:
+ *     the structured levels of the country → city → quartier place
+ *     picker (Mali first). birthPlace stays the free-text field it
+ *     always was; the picker adds the structured pair alongside.
  *   Relationship: { id, a, b, type, status, createdBy, createdAt }
  *     status: only meaningful for type 'partner' — null/'current' for a
  *     current spouse, 'former' for a divorced/separated one. The tree
@@ -45,6 +58,16 @@
  *   Suggestion: { id, personId, suggesterName, kind: 'edit'|'passing',
  *                 text, voice (data URL or URL), proposed: {...}|null,
  *                 status: 'pending'|'accepted'|'dismissed', createdAt }
+ *   Event: { id, type, personId, relatedPersonId, relationshipId,
+ *            detail, createdBy, createdAt }
+ *     A family life event, recorded as it happens through the normal
+ *     add/edit/link flows — type: 'addition' | 'birth' | 'marriage' |
+ *     'divorce' | 'death'. This is the NOTIFICATION SUBSTRATE ONLY:
+ *     events are recorded, nothing is ever sent. A later pass wires
+ *     WhatsApp delivery into this list, gated by settings below.
+ *   Settings: { notificationsEnabled: boolean } — app-wide switch,
+ *     DEFAULTS OFF. Turning it on today changes nothing visible; it
+ *     only arms the future delivery pass.
  *   Trait: { id, personId, traitKey, contributorName, createdAt }
  *     One row = one family member picking one quality for one person.
  *     traitKey is one of FC_I18N.TRAIT_KEYS (positive/funny only, no free
@@ -116,7 +139,13 @@
       birth: birth,
       birthPlace: raw.birthPlace || "",
       birthCountry: countries ? countries.countryForCity(raw.birthPlace) : null,
+      birthCity: "",
+      birthQuartier: "",
       residenceCountry: null,
+      residenceCity: "",
+      residenceQuartier: "",
+      phone: "",
+      email: "",
       death: death,
       deathPlace: raw.deathPlace || "",
       deathCountry: countries ? countries.countryForCity(raw.deathPlace) : null,
@@ -142,7 +171,10 @@
         createdAt: new Date(base + i * 60000).toISOString()
       };
     });
-    return { people: people, relationships: relationships, suggestions: [], traits: [] };
+    return {
+      people: people, relationships: relationships, suggestions: [], traits: [],
+      events: [], settings: { notificationsEnabled: false }
+    };
   }
 
   /* ------------------------------------------------------------------ */
@@ -174,6 +206,8 @@
       data.relationships = data.relationships || [];
       data.suggestions = data.suggestions || [];
       data.traits = data.traits || [];
+      data.events = data.events || [];
+      data.settings = data.settings || { notificationsEnabled: false };
       return data;
     } catch (e) {
       var fresh = buildSeed();
@@ -225,6 +259,12 @@
     data.relationships = data.relationships.filter(function (r) { return r.a !== id && r.b !== id; });
     data.suggestions = data.suggestions.filter(function (s) { return s.personId !== id; });
     data.traits = (data.traits || []).filter(function (tr) { return tr.personId !== id; });
+    /* The event log survives a removal (it is a log); its person
+       references are nulled, mirroring the DB's ON DELETE SET NULL. */
+    (data.events || []).forEach(function (ev) {
+      if (ev.personId === id) ev.personId = null;
+      if (ev.relatedPersonId === id) ev.relatedPersonId = null;
+    });
     this._write(data);
     return Promise.resolve();
   };
@@ -322,12 +362,42 @@
     return Promise.resolve(JSON.parse(JSON.stringify(mine)));
   };
 
+  /* Life events — the notification substrate. Recording NEVER fails
+     a user flow: the caller fires and forgets. */
+  LocalAdapter.prototype.addEvent = function (evt) {
+    var data = this._read();
+    data.events = data.events || [];
+    var saved = {
+      id: evt.id || uid("e"),
+      type: evt.type,
+      personId: evt.personId || null,
+      relatedPersonId: evt.relatedPersonId || null,
+      relationshipId: evt.relationshipId || null,
+      detail: evt.detail || null,
+      createdBy: evt.createdBy || "",
+      createdAt: evt.createdAt || new Date().toISOString()
+    };
+    data.events.push(saved);
+    this._write(data);
+    return Promise.resolve(JSON.parse(JSON.stringify(saved)));
+  };
+
+  LocalAdapter.prototype.setNotificationsEnabled = function (flag) {
+    var data = this._read();
+    data.settings = data.settings || {};
+    data.settings.notificationsEnabled = !!flag;
+    this._write(data);
+    return Promise.resolve(true);
+  };
+
   LocalAdapter.prototype.replaceAll = function (newData) {
     this._write({
       people: newData.people || [],
       relationships: newData.relationships || [],
       suggestions: newData.suggestions || [],
-      traits: newData.traits || []
+      traits: newData.traits || [],
+      events: newData.events || [],
+      settings: newData.settings || { notificationsEnabled: false }
     });
     return this.loadTree();
   };

@@ -33,6 +33,29 @@
     }
   }
 
+  /* Mali places for the country → city → quartier picker (fix pass
+     2026-11-15, Django's ruling): relatives in Mali shouldn't have to
+     spell their city or neighborhood — Bamako's quartiers especially.
+     Cities with an empty list simply offer a free-text quartier, and
+     every level keeps an "other" free-text escape, so nobody is ever
+     blocked by a missing entry. */
+  var MALI_PLACES = {
+    "Bamako": [
+      "ACI 2000", "Badalabugu", "Banankabugu", "Bamako Coura",
+      "Boulkassoumbougou", "Bozola", "Daoudabougou", "Djélibougou",
+      "Djicoroni", "Faladié", "Hamdallaye", "Hippodrome", "Kalaban",
+      "Korofina", "Lafiabougou", "Magnambougou", "Médina Coura",
+      "Missira", "Niamakoro", "Niaréla", "Quinzambougou",
+      "Sabalibougou", "Sébénikoro", "Sogoniko", "Sotuba",
+      "Titibougou", "Torokorobougou", "Yirimadio"
+    ],
+    "Kayes": [], "Sikasso": [], "Ségou": [], "Mopti": [], "Gao": [],
+    "Tombouctou": [], "Koutiala": [], "Koulikoro": [], "San": [],
+    "Bougouni": []
+  };
+  function maliCities() { return Object.keys(MALI_PLACES); }
+  function maliQuartiers(city) { return MALI_PLACES[city] || []; }
+
   // City -> country inference used only for the v1 seed data (Bamako, Dakar).
   var CITY_COUNTRY = { "bamako": "ML", "dakar": "SN" };
   function countryForCity(city) {
@@ -62,6 +85,9 @@
     name: name,
     countryForCity: countryForCity,
     COORDS: COORDS,
-    coords: coords
+    coords: coords,
+    MALI_PLACES: MALI_PLACES,
+    maliCities: maliCities,
+    maliQuartiers: maliQuartiers
   };
 })(typeof window !== "undefined" ? window : globalThis);

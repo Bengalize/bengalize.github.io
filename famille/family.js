@@ -282,8 +282,44 @@
     return gen;
   }
 
+  /* Connected components over ALL relationship types: who is linked
+     to whom, directly or through anyone. The tree layout uses this to
+     find the MAIN family (the largest component) and the unconnected
+     branches (every other component) — a branch is rendered as its own
+     mini-tree and is NEVER joined to the main tree by an invented
+     line; it merges only when a real relationship is stored. Groups
+     are sorted by size (largest first), ties broken by the group's
+     alphabetically-first name, so the result is deterministic. */
+  function components(data) {
+    var root = {};
+    (data.people || []).forEach(function (p) { root[p.id] = p.id; });
+    function find(x) {
+      while (root[x] !== x) { root[x] = root[root[x]]; x = root[x]; }
+      return x;
+    }
+    (data.relationships || []).forEach(function (r) {
+      if (root[r.a] === undefined || root[r.b] === undefined) return;
+      var ra = find(r.a), rb = find(r.b);
+      if (ra !== rb) root[rb] = ra;
+    });
+    var map = byId(data);
+    var groups = {};
+    Object.keys(root).forEach(function (id) {
+      var g = find(id);
+      (groups[g] = groups[g] || []).push(id);
+    });
+    return Object.keys(groups).map(function (g) { return groups[g]; })
+      .sort(function (g1, g2) {
+        if (g2.length !== g1.length) return g2.length - g1.length;
+        var n1 = g1.map(function (id) { return map[id] ? map[id].fullName : ""; }).sort()[0] || "";
+        var n2 = g2.map(function (id) { return map[id] ? map[id].fullName : ""; }).sort()[0] || "";
+        return n1 < n2 ? -1 : n1 > n2 ? 1 : 0;
+      });
+  }
+
   global.FC_FAMILY = {
     byId: byId,
+    components: components,
     parentsOf: parentsOf,
     childrenOf: childrenOf,
     stepParentsOf: stepParentsOf,
