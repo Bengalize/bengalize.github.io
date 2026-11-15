@@ -12,6 +12,8 @@
 <meta property="og:image" content="https://bengalycisse.com/og-image.jpg"/>
 <meta property="og:image:width" content="1200"/>
 <meta property="og:image:height" content="630"/>
+<meta property="og:locale" content="en_US"/>
+<meta property="og:locale:alternate" content="fr_FR"/>
 <meta name="twitter:card" content="summary_large_image"/>
 <meta name="twitter:title" content="Bengaly Cisse — Business Intelligence Engineer"/>
 <meta name="twitter:description" content="Business Intelligence Engineer at Amazon · Greater Seattle area. 318M+ rows migrated, 1.6B+ rows restored — portfolio, project record and résumé."/>
@@ -22,6 +24,9 @@
 <link rel="icon" type="image/svg+xml" href="/favicon.svg"/>
 <title>Bengaly Cisse — Business Intelligence Engineer &amp; Data Engineer</title>
 <link rel="canonical" href="https://bengalycisse.com/"/>
+<link rel="alternate" hreflang="en" href="https://bengalycisse.com/"/>
+<link rel="alternate" hreflang="fr" href="https://bengalycisse.com/fr/"/>
+<link rel="alternate" hreflang="x-default" href="https://bengalycisse.com/"/>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
 <link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,500;6..72,600;6..72,700&family=Source+Sans+3:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet"/>
@@ -271,15 +276,31 @@ section.block{padding:74px 0 8px}
 .resume-sec li{margin-bottom:5px}
 .resume-sec li strong,.resume-sec p strong{color:var(--ink2)}
 footer.site{padding:24px 0 42px;color:var(--muted);font-size:.87rem}
-footer.site .wrap{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}
+footer.site .wrap{display:block}
+
+/* language toggle (added with the bilingual build; mirrors /assets/site.css) */
+.navwrap{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end}
+.langtoggle{display:inline-flex;border:1px solid var(--line2);border-radius:999px;overflow:hidden;background:var(--surface)}
+.langtoggle a{padding:6px 13px;font-size:.82rem;font-weight:700;text-decoration:none;color:var(--muted);min-height:36px;display:inline-flex;align-items:center}
+.langtoggle a.on{background:var(--accent);color:var(--accentInk)}
+.langtoggle a:not(.on):hover{color:var(--accent)}
+.foot-nav{display:flex;gap:4px 16px;flex-wrap:wrap;margin-bottom:14px}
+.foot-nav a{color:var(--ink2);text-decoration:none;font-weight:600;font-size:.9rem}
+.foot-nav a:hover{color:var(--accent)}
+.foot-line{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;width:100%}
+.deepdives{font-size:.95rem;color:var(--muted);margin:0 0 20px}
+.deepdives a{font-weight:700}
 </style>
 </head>
 <body>
 <header class="site"><div class="wrap site-inner">
-<a class="brand" href="#top">Bengaly Cisse <b>/ portfolio</b></a>
+<a class="brand" href="/">Bengaly Cisse <b>/ portfolio</b></a>
+<div class="navwrap">
 <nav class="main" aria-label="Portfolio sections">
-<a href="#experience">Experience</a><a href="#projects">Projects</a><a href="#path">Background</a><a href="#skills">Skills</a><a href="#credentials">Certifications</a><a href="#contact">Contact</a>
-</nav></div></header>
+<a href="/about">About</a><a href="#projects">Projects</a><a href="/press">Featured</a><a href="#experience">Experience</a><a href="#contact">Contact</a>
+</nav>
+<span class="langtoggle" role="group" aria-label="Language / Langue"><a href="/" lang="en" aria-label="English version" class="on" aria-current="true">EN</a><a href="/fr/" lang="fr" aria-label="Version française">FR</a></span>
+</div></div></header>
 
 <main id="top">
 <div class="wrap hero">
@@ -517,7 +538,8 @@ footer.site .wrap{display:flex;justify-content:space-between;gap:12px;flex-wrap:
 
 <!-- PROJECTS -->
 <section class="block" id="projects" aria-labelledby="projects-h"><div class="wrap">
-<div class="sec-head"><span class="kicker">Selected work</span><h2 id="projects-h">Projects</h2><p>Amazon production work first, then machine learning, AI, and analytics projects. Select “Read more” on a card for the full write-up; academic projects link out to their full pages.</p></div>
+<div class="sec-head"><span class="kicker">Selected work</span><h2 id="projects-h">Projects</h2><p>Amazon production work first, then machine learning, AI, and analytics projects. Select “Read more” on a card for the full write-up; academic projects link out to their full pages.</p>
+<p class="deepdives">Deep dives: <a href="/projects/redshift-migration">Redshift migration</a> · <a href="/projects/glue-crawler-recovery">Glue crawler recovery</a> · <a href="/projects/streamlit-voice-recording">Streamlit voice recording</a> · <a href="/projects/bambara-video">Bambara video</a> · <a href="/projects/ai-career-coach">AI Career Coach</a> · <a href="/about">About</a> · <a href="/press">Featured coverage</a></div>
 <div class="filters" role="group" aria-label="Filter projects">
 <button class="chipf" type="button" data-filter="all" aria-pressed="true">All work</button>
 <button class="chipf" type="button" data-filter="data-eng" aria-pressed="false">Data Engineering</button>
@@ -633,7 +655,7 @@ footer.site .wrap{display:flex;justify-content:space-between;gap:12px;flex-wrap:
 </div></div></div>
 
 </main>
-<footer class="site"><div class="wrap"><span>Bengaly Cisse — Business Intelligence Engineer, Amazon · Greater Seattle area · bengalycisse.com</span><span class="mono">318M rows migrated · 1.6B restored · 48,980 assets tracked</span></div></footer>
+<footer class="site"><div class="wrap"><nav class="foot-nav" aria-label="Site"><a href="/">Home</a><a href="/about">About</a><a href="/press">Featured</a><a href="/projects/redshift-migration">Redshift migration</a><a href="/projects/glue-crawler-recovery">Glue crawler recovery</a><a href="/projects/streamlit-voice-recording">Streamlit voice recording</a><a href="/projects/bambara-video">Bambara video</a><a href="/projects/ai-career-coach">AI Career Coach</a></nav><div class="foot-line"><span>Bengaly Cisse — Business Intelligence Engineer, Amazon · Greater Seattle area · bengalycisse.com</span><span class="mono">318M rows migrated · 1.6B restored · 48,980 assets tracked</span></div></div></footer>
 
 <script>
 (function(){
@@ -711,5 +733,6 @@ chips.forEach(function(chip){chip.addEventListener("click",function(){
 });});
 })();
 </script>
+<script src="/assets/lang.js" defer></script>
 </body>
 </html>
