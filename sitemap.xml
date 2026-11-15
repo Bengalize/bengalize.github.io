@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">
   <url>
     <loc>https://bengalycisse.com/</loc>
     <xhtml:link rel="alternate" hreflang="en" href="https://bengalycisse.com/"/>
@@ -23,6 +23,19 @@
     <xhtml:link rel="alternate" hreflang="x-default" href="https://bengalycisse.com/about"/>
     <changefreq>monthly</changefreq>
     <priority>0.9</priority>
+  
+    <image:image>
+      <image:loc>https://bengalycisse.com/assets/img/bengaly-cisse-headshot.jpg</image:loc>
+      <image:title>Bengaly Cisse</image:title>
+    </image:image>
+    <image:image>
+      <image:loc>https://bengalycisse.com/assets/img/bengaly-cisse-campus.jpg</image:loc>
+      <image:title>Bengaly Cisse</image:title>
+    </image:image>
+    <image:image>
+      <image:loc>https://bengalycisse.com/assets/img/bengaly-cisse-barcelona.jpg</image:loc>
+      <image:title>Bengaly Cisse</image:title>
+    </image:image>
   </url>
   <url>
     <loc>https://bengalycisse.com/fr/about</loc>
@@ -31,6 +44,19 @@
     <xhtml:link rel="alternate" hreflang="x-default" href="https://bengalycisse.com/about"/>
     <changefreq>monthly</changefreq>
     <priority>0.9</priority>
+  
+    <image:image>
+      <image:loc>https://bengalycisse.com/assets/img/bengaly-cisse-headshot.jpg</image:loc>
+      <image:title>Bengaly Cisse</image:title>
+    </image:image>
+    <image:image>
+      <image:loc>https://bengalycisse.com/assets/img/bengaly-cisse-campus.jpg</image:loc>
+      <image:title>Bengaly Cisse</image:title>
+    </image:image>
+    <image:image>
+      <image:loc>https://bengalycisse.com/assets/img/bengaly-cisse-barcelona.jpg</image:loc>
+      <image:title>Bengaly Cisse</image:title>
+    </image:image>
   </url>
   <url>
     <loc>https://bengalycisse.com/press</loc>
