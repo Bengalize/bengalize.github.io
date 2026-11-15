@@ -52,7 +52,7 @@
 <div class="tags"><span class="tag">AWS Glue</span><span class="tag">Redshift</span><span class="tag">Incident recovery</span><span class="tag">Food-safety compliance</span></div>
 <div class="stats c3">
 <div class="stat"><div class="num">1.6<em>B+</em></div><div class="lbl">rows restored — for the most recent month alone</div></div>
-<div class="stat"><div class="num">~71</div><div class="lbl">sites whose compliance data went to leadership the same evening</div></div>
+<div class="stat"><div class="num">Dozens</div><div class="lbl">sites whose compliance data went to leadership the same evening</div></div>
 <div class="stat"><div class="num">7</div><div class="lbl">months the failure went unnoticed</div></div>
 </div></div>
 
@@ -61,7 +61,7 @@
 <div class="steps">
 <div class="step reveal"><span class="kicker">The request</span><h3>Temperature table missing seven months of data</h3><p>Leadership requested food-safety compliance numbers. The production temperature table had stopped updating seven months earlier — seven months of sensor data were missing.</p></div>
 <div class="step reveal"><span class="kicker">The cause</span><h3>A stopped crawler</h3><p>I traced the pipeline end to end and found that an AWS Glue crawler had stopped running. Nothing downstream had raised an alarm.</p></div>
-<div class="step reveal"><span class="kicker">The fix</span><h3>Crawler re-run the same night</h3><p>I re-ran the crawler that night, restoring 1.6B+ rows for the most recent month alone. Compliance numbers for ~71 sites went to leadership the same evening.</p></div>
+<div class="step reveal"><span class="kicker">The fix</span><h3>Crawler re-run the same night</h3><p>I re-ran the crawler that night, restoring 1.6B+ rows for the most recent month alone. Compliance numbers for dozens of sites went to leadership the same evening.</p></div>
 <div class="step reveal"><span class="kicker">Prevention</span><h3>Crawler put on a daily schedule</h3><p>The crawler now runs daily, so a stoppage would show up within a day instead of going unnoticed for months.</p></div>
 </div>
 </div></section>

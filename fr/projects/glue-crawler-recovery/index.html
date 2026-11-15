@@ -52,7 +52,7 @@
 <div class="tags"><span class="tag">AWS Glue</span><span class="tag">Redshift</span><span class="tag">Résolution d'incident</span><span class="tag">Conformité alimentaire</span></div>
 <div class="stats c3">
 <div class="stat"><div class="num">1.6<em>B+</em></div><div class="lbl">de lignes restaurées — pour le dernier mois complet</div></div>
-<div class="stat"><div class="num">~71</div><div class="lbl">sites dont les données de conformité ont été livrées à la direction le soir même</div></div>
+<div class="stat"><div class="num">Dizaines</div><div class="lbl">sites dont les données de conformité ont été livrées à la direction le soir même</div></div>
 <div class="stat"><div class="num">7</div><div class="lbl">mois pendant lesquels la panne est passée inaperçue</div></div>
 </div></div>
 
@@ -61,7 +61,7 @@
 <div class="steps">
 <div class="step reveal"><span class="kicker">La demande</span><h3>Sept mois de données manquantes</h3><p>La direction a demandé des chiffres de conformité en sécurité alimentaire. La table de températures de production avait cessé de se mettre à jour sept mois plus tôt — sept mois de données de capteurs manquaient.</p></div>
 <div class="step reveal"><span class="kicker">La cause</span><h3>Un crawler arrêté</h3><p>J'ai retracé le pipeline de bout en bout et découvert qu'un crawler AWS Glue avait cessé de fonctionner. Rien, en aval, n'avait déclenché d'alerte.</p></div>
-<div class="step reveal"><span class="kicker">La correction</span><h3>Crawler relancé le soir même</h3><p>J'ai relancé le crawler le soir même, restaurant plus de 1.6B de lignes pour le seul dernier mois complet. Les chiffres de conformité d'environ 71 sites ont été transmis à la direction le même soir.</p></div>
+<div class="step reveal"><span class="kicker">La correction</span><h3>Crawler relancé le soir même</h3><p>J'ai relancé le crawler le soir même, restaurant plus de 1.6B de lignes pour le seul dernier mois complet. Les chiffres de conformité de dizaines de sites ont été transmis à la direction le même soir.</p></div>
 <div class="step reveal"><span class="kicker">La prévention</span><h3>Une planification quotidienne</h3><p>Le crawler tourne désormais chaque jour : un arrêt se verrait en un jour, au lieu de passer inaperçu pendant des mois.</p></div>
 </div>
 </div></section>
