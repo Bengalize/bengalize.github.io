@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <!-- Portfolio (root). /portfolio is a redirect to /, so it is not listed. -->
+  <url>
+    <loc>https://bengalycisse.com/</loc>
+    <changefreq>monthly</changefreq>
+    <priority>1.0</priority>
+  </url>
+  <!-- Artizanale agency page (separate local-SEO lane). -->
+  <url>
+    <loc>https://bengalycisse.com/bellevue</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+  </url>
+  <!-- NOT listed, on purpose: /famille (noindex, private family data). -->
+</urlset>

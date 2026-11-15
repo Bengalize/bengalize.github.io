@@ -1,0 +1,11 @@
+# robots.txt for bengalycisse.com — drop at repo root.
+# Deliberately NO Disallow for /famille/: its pages carry a
+# <meta name="robots" content="noindex, nofollow"> tag, and crawlers can
+# only honor that tag if they are allowed to fetch the page. Blocking the
+# crawl would hide the noindex and could leave a bare URL-only result.
+# /famille/ is also kept out of sitemap.xml and is not linked from any
+# indexed page.
+User-agent: *
+Allow: /
+
+Sitemap: https://bengalycisse.com/sitemap.xml
