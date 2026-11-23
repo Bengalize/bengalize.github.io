@@ -4,11 +4,11 @@
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
 <meta name="color-scheme" content="light dark"/>
-<meta name="description" content="Une table de températures de production n'avait plus de données depuis sept mois. Bengaly Cisse a retracé la cause — un crawler AWS Glue arrêté — et restauré plus de 1.6B de lignes en une nuit."/>
+<meta name="description" content="Une table de températures de production avait cessé de se mettre à jour. Bengaly Cisse a retracé la cause — un crawler AWS Glue arrêté — et restauré plus de 1.6B de lignes en une nuit."/>
 <meta property="og:type" content="article"/>
 <meta property="og:url" content="https://bengalycisse.com/fr/projects/glue-crawler-recovery"/>
 <meta property="og:title" content="Restaurer une table de températures qui ne se mettait plus à jour — Bengaly Cisse"/>
-<meta property="og:description" content="Une table de températures de production n'avait plus de données depuis sept mois. Bengaly Cisse a retracé la cause — un crawler AWS Glue arrêté — et restauré plus de 1.6B de lignes en une nuit."/>
+<meta property="og:description" content="Une table de températures de production avait cessé de se mettre à jour. Bengaly Cisse a retracé la cause — un crawler AWS Glue arrêté — et restauré plus de 1.6B de lignes en une nuit."/>
 <meta property="og:image" content="https://bengalycisse.com/og-image.jpg"/>
 <meta property="og:image:width" content="1200"/>
 <meta property="og:image:height" content="630"/>
@@ -16,7 +16,7 @@
 <meta property="og:locale:alternate" content="en_US"/>
 <meta name="twitter:card" content="summary_large_image"/>
 <meta name="twitter:title" content="Restaurer une table de températures qui ne se mettait plus à jour — Bengaly Cisse"/>
-<meta name="twitter:description" content="Une table de températures de production n'avait plus de données depuis sept mois. Bengaly Cisse a retracé la cause — un crawler AWS Glue arrêté — et restauré plus de 1.6B de lignes en une nuit."/>
+<meta name="twitter:description" content="Une table de températures de production avait cessé de se mettre à jour. Bengaly Cisse a retracé la cause — un crawler AWS Glue arrêté — et restauré plus de 1.6B de lignes en une nuit."/>
 <meta name="twitter:image" content="https://bengalycisse.com/og-image.jpg"/>
 <script type="application/ld+json">
 {"@context":"https://schema.org","@type":"Article","headline":"Restaurer une table de températures qui ne se mettait plus à jour — Bengaly Cisse","inLanguage":"fr","mainEntityOfPage":"https://bengalycisse.com/fr/projects/glue-crawler-recovery","author":{"@id":"https://bengalycisse.com/#person"},"about":{"@id":"https://bengalycisse.com/#person"}}
@@ -47,37 +47,37 @@
 <div class="wrap hero">
 <span class="pill"><i></i> Résolution d'incident · Amazon</span>
 <h1>Restaurer une table de températures qui <span>ne se mettait plus à jour</span></h1>
-<p class="lede">Une demande de conformité en sécurité alimentaire, venue de la direction, a révélé qu'une table de températures de production n'avait <strong>plus aucune donnée depuis sept mois</strong> — sept mois de données de capteurs manquantes, sans qu'aucune alerte ne se soit déclenchée en aval. J'ai retracé la cause, restauré les données et livré les chiffres de conformité le soir même.</p>
+<p class="lede">Une table de températures de production avait <strong>cessé de se mettre à jour</strong>. J'ai retracé la cause — un crawler AWS Glue arrêté — restauré les données le soir même et mis le crawler sur une planification quotidienne.</p>
 <div class="cta"><a class="btn btn-p" href="/fr/#projects">Le voir dans le portfolio</a><a class="btn btn-g" href="/fr/about">À propos de Bengaly Cisse</a></div>
 <div class="tags"><span class="tag">AWS Glue</span><span class="tag">Redshift</span><span class="tag">Résolution d'incident</span><span class="tag">Conformité alimentaire</span></div>
 <div class="stats c3">
 <div class="stat"><div class="num">1.6<em>B+</em></div><div class="lbl">de lignes restaurées — pour le dernier mois complet</div></div>
-<div class="stat"><div class="num">Dizaines</div><div class="lbl">sites dont les données de conformité ont été livrées à la direction le soir même</div></div>
-<div class="stat"><div class="num">7</div><div class="lbl">mois pendant lesquels la panne est passée inaperçue</div></div>
+<div class="stat"><div class="num">Dizaines</div><div class="lbl">sites dont les données ont été livrées le soir même</div></div>
+<div class="stat"><div class="num">Chaque jour</div><div class="lbl">planification du crawler — un arrêt se voit désormais en un jour</div></div>
 </div></div>
 
 <section class="block"><div class="wrap">
-<div class="sec-head"><span class="kicker">Le déroulé</span><h2>Demande, cause, correction, prévention</h2></div>
+<div class="sec-head"><span class="kicker">Le déroulé</span><h2>Problème, cause, correction, prévention</h2></div>
 <div class="steps">
-<div class="step reveal"><span class="kicker">La demande</span><h3>Sept mois de données manquantes</h3><p>La direction a demandé des chiffres de conformité en sécurité alimentaire. La table de températures de production avait cessé de se mettre à jour sept mois plus tôt — sept mois de données de capteurs manquaient.</p></div>
-<div class="step reveal"><span class="kicker">La cause</span><h3>Un crawler arrêté</h3><p>J'ai retracé le pipeline de bout en bout et découvert qu'un crawler AWS Glue avait cessé de fonctionner. Rien, en aval, n'avait déclenché d'alerte.</p></div>
-<div class="step reveal"><span class="kicker">La correction</span><h3>Crawler relancé le soir même</h3><p>J'ai relancé le crawler le soir même, restaurant plus de 1.6B de lignes pour le seul dernier mois complet. Les chiffres de conformité de dizaines de sites ont été transmis à la direction le même soir.</p></div>
-<div class="step reveal"><span class="kicker">La prévention</span><h3>Une planification quotidienne</h3><p>Le crawler tourne désormais chaque jour : un arrêt se verrait en un jour, au lieu de passer inaperçu pendant des mois.</p></div>
+<div class="step reveal"><span class="kicker">Le problème</span><h3>Une table qui ne se mettait plus à jour</h3><p>Une table de températures de production avait cessé de se mettre à jour, et ses données de capteurs manquaient.</p></div>
+<div class="step reveal"><span class="kicker">La cause</span><h3>Un crawler arrêté</h3><p>J'ai retracé le pipeline de bout en bout et découvert qu'un crawler AWS Glue avait cessé de fonctionner.</p></div>
+<div class="step reveal"><span class="kicker">La correction</span><h3>Crawler relancé le soir même</h3><p>J'ai relancé le crawler le soir même, restaurant plus de 1.6B de lignes pour le seul dernier mois complet. Les données de dizaines de sites ont été livrées le même soir.</p></div>
+<div class="step reveal"><span class="kicker">La prévention</span><h3>Une planification quotidienne</h3><p>Le crawler tourne désormais chaque jour : un arrêt se verrait en un jour.</p></div>
 </div>
 </div></section>
 
 <section class="block"><div class="wrap">
-<div class="sec-head"><span class="kicker">Le trou — sept mois de données manquantes</span><h2>Données de température présentes, par mois</h2>
+<div class="sec-head"><span class="kicker">Le trou — données manquantes, restaurées</span><h2>Données de température présentes, par mois</h2>
 <p>La ligne plate, c'est la panne silencieuse ; le dernier mois, c'est le pipeline restauré, en fonctionnement quotidien. Hauteurs schématiques ; le trou et la restauration sont exacts.</p></div>
 <div class="chart-card"><div class="bars">
 <div class="bar" style="height:78%"></div><div class="bar" style="height:84%"></div><div class="bar" style="height:88%"></div><div class="bar zero"></div><div class="bar zero"></div><div class="bar zero"></div><div class="bar zero"></div><div class="bar zero"></div><div class="bar zero"></div><div class="bar zero"></div><div class="bar hot" style="height:96%"></div>
 </div><div class="barlabels"><span>JUIN</span><span>JUIL</span><span>AOÛT</span><span>SEPT</span><span>OCT</span><span>NOV</span><span>DÉC</span><span>JANV</span><span>FÉVR</span><span>MARS</span><span>AVR</span></div>
-<figcaption>Aucune donnée — crawler arrêté, aucune alerte. Dernier mois complet : 1.6B de lignes restaurées.</figcaption></div>
+<figcaption>Aucune donnée — crawler arrêté. Dernier mois complet : 1.6B de lignes restaurées.</figcaption></div>
 </div></section>
 </main><section class="block"><div class="wrap">
 <div class="sec-head"><span class="kicker">Autres projets</span><h2>Autres projets</h2></div>
 <div class="cards c4">
-<a class="card" href="/fr/projects/redshift-migration"><span class="kicker">Ingénierie des données · Amazon</span><h3>Migration de données de production vers une architecture d'entrepôt dédiée</h3><p>21 jeux de données, 318M+ de lignes, déplacés en deux nuits, en tant qu'ingénieur principal.</p><span class="go">Voir le projet →</span></a><a class="card" href="/fr/projects/streamlit-voice-recording"><span class="kicker">Tutoriel · YouTube</span><h3>Add Live Voice Recording to Your Web App in ~10 Minutes</h3><p>Le tutoriel Streamlit + Python de la chaîne @BenjCx — ma vidéo la plus vue.</p><span class="go">Voir le projet →</span></a><a class="card" href="/fr/projects/bambara-video"><span class="kicker">Vidéo · Bambara</span><h3>Musa, un tailleur de Bamako, se rend visible sur Google</h3><p>Une vidéo animée de 51 secondes, écrite et doublée entièrement en bambara.</p><span class="go">Voir le projet →</span></a><a class="card" href="/fr/projects/ai-career-coach"><span class="kicker">Projet étudiant · 2024</span><h3>AI-Powered Career Coach for Job Applications &amp; Networking</h3><p>Un projet étudiant de 2024 à Harrisburg University : un assistant IA conçu pour aider les étudiants avec leur CV, leurs lettres de motivation et leurs entretiens.</p><span class="go">Voir le projet →</span></a>
+<a class="card" href="/fr/projects/redshift-migration"><span class="kicker">Ingénierie des données · Amazon</span><h3>Migration de données de production vers une architecture d'entrepôt dédiée</h3><p>21 jeux de données, 318M+ de lignes, déplacés en deux nuits, en tant qu'ingénieur principal.</p><span class="go">Voir le projet →</span></a><a class="card" href="/fr/projects/streamlit-voice-recording"><span class="kicker">Tutoriel · Streamlit</span><h3>Add Live Voice Recording to Your Web App in ~10 Minutes</h3><p>Un tutoriel Streamlit + Python, pas à pas : l'enregistrement vocal en direct dans une application web.</p><span class="go">Voir le projet →</span></a><a class="card" href="/fr/projects/bambara-video"><span class="kicker">Vidéo · Bambara</span><h3>Musa, un tailleur de Bamako, se rend visible sur Google</h3><p>Une vidéo animée de 51 secondes, écrite et doublée entièrement en bambara.</p><span class="go">Voir le projet →</span></a><a class="card" href="/fr/projects/ai-career-coach"><span class="kicker">Projet étudiant · 2024</span><h3>AI-Powered Career Coach for Job Applications &amp; Networking</h3><p>Un projet étudiant de 2024 à Harrisburg University : un assistant IA conçu pour aider les étudiants avec leur CV, leurs lettres de motivation et leurs entretiens.</p><span class="go">Voir le projet →</span></a>
 </div>
 </div></section>
 <footer class="site"><div class="wrap">
